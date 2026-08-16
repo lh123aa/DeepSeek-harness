@@ -76,6 +76,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
+    deleteSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
@@ -1119,6 +1120,77 @@ describe('WorkspaceBrowser', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭' }))
     expect(deleteWorkspace).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog', { name: '删除工作区' })).toBeNull()
+  })
+
+  it('confirms session deletion with the retention copy, blocks duplicate submission, and closes on success', async () => {
+    let resolveDelete!: () => void
+    const deleteSession = vi.fn(() => new Promise<void>((resolve) => { resolveDelete = resolve }))
+    mount({
+      useSessions: hook(sessionState([summary('doomed', 2, { displayTitle: 'Doomed' })])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['doomed'])])),
+      deleteSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“Doomed”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除对话' }))
+    const dialog = screen.getByRole('dialog', { name: '删除对话' })
+    expect(dialog.textContent).toContain('将把「Doomed」从侧边栏永久移除')
+    expect(dialog.textContent).toContain('日志仍保留在磁盘上')
+    expect(dialog.textContent).toContain('不可在界面撤销')
+
+    const confirm = screen.getByRole<HTMLButtonElement>('button', { name: '删除对话' })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+    expect(deleteSession).toHaveBeenCalledOnce()
+    expect(deleteSession).toHaveBeenCalledWith(sid('doomed'))
+    expect(confirm.disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '取消' }).disabled).toBe(true)
+    expect(screen.getByRole('status').textContent).toBe('正在删除对话…')
+    await act(async () => { resolveDelete() })
+    expect(screen.queryByRole('dialog', { name: '删除对话' })).toBeNull()
+  })
+
+  it('keeps the session delete dialog open on failure and allows retry or cancellation', async () => {
+    const deleteSession = vi.fn()
+      .mockRejectedValueOnce(new Error('storage unavailable'))
+      .mockRejectedValueOnce('denied')
+    mount({
+      useSessions: hook(sessionState([summary('doomed', 2, { displayTitle: 'Doomed' })])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['doomed'])])),
+      deleteSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“Doomed”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除对话' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除对话' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('storage unavailable') })
+    expect(screen.getByRole('dialog', { name: '删除对话' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '删除对话' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog', { name: '删除对话' })).toBeNull()
+  })
+
+  it('Cancel, Escape, and Close dismiss session deletion without calling the action', () => {
+    const deleteSession = vi.fn(async () => {})
+    mount({
+      useSessions: hook(sessionState([summary('doomed', 2, { displayTitle: 'Doomed' })])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['doomed'])])),
+      deleteSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    const open = () => {
+      fireEvent.click(screen.getByRole('button', { name: '会话“Doomed”的操作' }))
+      fireEvent.click(screen.getByRole('menuitem', { name: '删除对话' }))
+    }
+    open()
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    open()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    open()
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(deleteSession).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog', { name: '删除对话' })).toBeNull()
   })
 
   it('search hides drag affordances (rows are not draggable during search)', () => {

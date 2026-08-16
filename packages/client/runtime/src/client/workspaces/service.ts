@@ -293,6 +293,18 @@ export class WorkspaceRuntime implements IWorkspaces {
   }
 
   /**
+   * Delete a session durably: the tombstone archive set hides it everywhere,
+   * the accounting Workspace detaches the id, and the log stays on disk.
+   * Deleting the current session clears the selection into the New Session
+   * view state (the projection sweep handles this uniformly).
+   * @param sessionId - session to delete.
+   */
+  async deleteSession(sessionId: SessionId): Promise<void> {
+    const result = await this.manager.deleteSession(sessionId)
+    if (!result.ok) throw new Error(`session delete failed: ${result.error.code}: ${result.error.message}`)
+  }
+
+  /**
    * Move a session within its Workspace's manual order (DOM-insertBefore-like).
    * @param workspaceId - owning workspace.
    * @param sessionId - accounted session to move.

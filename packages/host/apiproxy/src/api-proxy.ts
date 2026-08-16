@@ -2918,6 +2918,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         }
         return ok(request, { archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds] })
       },
+
+      async deleteSession(request) {
+        const { sessionId } = request.payload
+        // A running turn must not lose its stop affordance mid-flight: deleting
+        // the row while the agent works would strand the turn.
+        const agent = ctx.agents.get(sessionId)
+        if (agent !== undefined && agent.status === 'running') {
+          return err(request, {
+            code: 'agent-busy',
+            message: `session "${sessionId}" is currently running`,
+            details: { reason: `session "${sessionId}" is currently running` },
+          })
+        }
+        try {
+          await ctx.workspaceRegistry.deleteSession(sessionId)
+        } catch (error: unknown) {
+          if (!(error instanceof WorkspaceUnknownSessionError)) throw error
+          return err(request, {
+            code: 'session-not-found',
+            message: error.message,
+            details: { sessionId },
+          })
+        }
+        return ok(request, { archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds] })
+      },
     },
 
     host: {

@@ -106,4 +106,16 @@ export interface WorkspaceApi {
    */
   archiveSession(request: RpcRequest<{ sessionId: SessionId }>):
   Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>>
+
+  /**
+   * Deletes one session durably: the registry-global archive set becomes its
+   * tombstone (the session disappears from every grouping surface and never
+   * resurfaces from persistence baselines) and the accounting Workspace
+   * detaches the id. The session log stays untouched. A live session with a
+   * running turn rejects with `agent-busy`; neither-live-nor-persisted ids
+   * fail with `session-not-found`. Returns the full updated archive set
+   * (same snapshot the changed frame carries).
+   */
+  deleteSession(request: RpcRequest<{ sessionId: SessionId }>):
+  Promise<RpcResponse<{ archivedSessionIds: SessionId[] }>>
 }

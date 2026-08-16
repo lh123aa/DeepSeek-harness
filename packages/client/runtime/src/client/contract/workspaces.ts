@@ -91,4 +91,13 @@ export interface IWorkspaces {
    * @param sessionId - session to archive.
    */
   archiveSession(sessionId: SessionId): Promise<void>
+  /**
+   * Delete a session durably: the registry-global archive set becomes its
+   * tombstone (the session disappears from every grouping surface and never
+   * resurfaces from persistence baselines), the accounting Workspace detaches
+   * the id, and the session log stays on disk. Deleting the current session
+   * clears the selection into the New Session view state.
+   * @param sessionId - session to delete.
+   */
+  deleteSession(sessionId: SessionId): Promise<void>
 }

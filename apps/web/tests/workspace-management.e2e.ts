@@ -596,6 +596,64 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 
+  it('deletes the seeded session from its row menu after confirmation, hiding it durably across reload', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-session-delete'))
+    // Own stray for this scenario: the shared seeded session is archived by
+    // the preceding test, so a fresh one keeps the single-stray assumption
+    // and makes the delete round trip (row menu → confirm dialog →
+    // workspace.deleteSession RPC → durable tombstone → row hidden) fully
+    // observable without touching the archived fixture.
+    const deleteId = 'workspace-management-web-e2e-session-delete'
+    const deleteSessionId = await seedSession(scaffold, await readFile(SEED, 'utf8'), deleteId)
+
+    const ungroupedRow = page.getByText('Ungrouped', { exact: true }).locator('..').locator('..')
+    const ungroupedSection = ungroupedRow.locator('..')
+    await expect.poll(async () => {
+      if (await ungroupedRow.getAttribute('aria-expanded') !== 'true') {
+        await page.getByText('Ungrouped', { exact: true }).click()
+        await page.waitForTimeout(50)
+      }
+      return await ungroupedRow.getAttribute('aria-expanded')
+    }, { timeout: 5_000 }).toBe('true')
+    const sessionRows = ungroupedSection.locator('[role="treeitem"]')
+      .filter({ has: page.locator('button[aria-label^="Session actions for "]') })
+    await expect.poll(() => sessionRows.count(), { timeout: 10_000 }).toBe(1)
+    const sessionRow = sessionRows.first()
+    const rowTitle = await sessionRow.locator('[class*="title"]').innerText()
+
+    // Row menu: Delete conversation is the destructive bottom item and opens a
+    // confirmation dialog (unlike Archive, which commits directly).
+    await clickHoverAction(sessionRow, `Session actions for ${rowTitle}`)
+    await page.getByRole('menuitem', { name: 'Delete conversation' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Delete conversation' })
+    await dialog.waitFor({ timeout: 10_000 })
+    const copy = await dialog.textContent()
+    expect(copy).toContain('removes')
+    expect(copy).toContain('log stays on disk')
+    expect(copy).toContain('cannot be undone')
+    await dialog.getByRole('button', { name: 'Delete conversation' }).click()
+    await expect.poll(() => dialog.count(), { timeout: 10_000 }).toBe(0)
+
+    // The row disappears on the tombstone echo; with no other visible stray,
+    // the whole Ungrouped bucket withdraws.
+    await expect.poll(() => page.getByText(rowTitle, { exact: true }).count(), { timeout: 10_000 }).toBe(0)
+    await expect.poll(() => page.getByText('Ungrouped', { exact: true }).count(), { timeout: 10_000 }).toBe(0)
+    // Durable on the host: the registry-global tombstone set carries the id
+    // while the session log itself stays in persistence untouched.
+    expect([...scaffold.ctx.workspaceRegistry.archivedSessionIds]).toContain(deleteSessionId)
+    expect((await scaffold.ctx.sessionPersistence.list()).map(header => header.id)).toContain(deleteSessionId)
+
+    // Reload: the hidden state is rebuilt from the workspace.list baseline.
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await expect.poll(() => page.getByText('Workspaces', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
+    // The deleted row must not resurface.
+    expect(await page.getByText(rowTitle, { exact: true }).count()).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
+
   it('opens folders with identical basenames as distinct workspaces', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-duplicate-basename'))
     const firstPath = join(scaffold.workspaceCwd, 'same-basename-a', 'xx')

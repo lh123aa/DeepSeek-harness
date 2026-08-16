@@ -488,6 +488,40 @@ describe('WorkspaceRuntime', () => {
     expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-open'])
   })
 
+  it('deletes a session: tombstone echo clears the row, current selection clears, host failure leaves state', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    api.onList = () => Promise.resolve(ok({
+      items: [
+        { sessionId: sid('s-keep'), updatedAt: 2, running: false, blank: false },
+        { sessionId: sid('s-doom'), updatedAt: 1, running: false, blank: false },
+      ],
+    }) as never)
+    await sessions.refresh()
+    sessions.open(sid('s-keep'))
+
+    // Deleting a non-current session installs the unary echo and keeps the selection.
+    await expect(workspaces.deleteSession(sid('s-doom'))).resolves.toBeUndefined()
+    expect(api.callsOf('workspace.deleteSession')).toEqual([{ sessionId: 's-doom' }])
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-doom'])
+    expect(sessions.list.getSnapshot().current).toBe('s-keep')
+
+    // Deleting the current session clears it into the New Session view state.
+    api.onWorkspaceDeleteSession = () => Promise.resolve(ok({ archivedSessionIds: [sid('s-doom'), sid('s-keep')] }))
+    await workspaces.deleteSession(sid('s-keep'))
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-doom', 's-keep'])
+    expect(sessions.list.getSnapshot().current).toBeUndefined()
+
+    // A Host failure leaves the set and the selection untouched.
+    api.onWorkspaceDeleteSession = () => Promise.resolve(err({
+      code: 'session-not-found', message: 'no session ghost', details: { sessionId: sid('ghost') },
+    }))
+    await expect(workspaces.deleteSession(sid('ghost'))).rejects.toThrow(/session-not-found/)
+    expect(workspaces.list.getSnapshot().archivedSessionIds).toEqual(['s-doom', 's-keep'])
+  })
+
   it('clears a current archived by a remote frame and shields the set from a stale in-flight baseline', async () => {
     const ctx = new Context()
     const api = new FakeApiClient()

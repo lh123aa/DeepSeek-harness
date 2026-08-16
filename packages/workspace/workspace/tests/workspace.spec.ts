@@ -907,7 +907,7 @@ describe('registry-global session archive', () => {
     expect(result.registry.archivedSessionIds).toEqual(['stray', 'live-only'])
 
     await expect(result.registry.archiveSession(SessionId('ghost')))
-      .rejects.toThrow(/cannot archive session 'ghost'/)
+      .rejects.toThrow(/unknown session 'ghost'/)
     expect(storedState(result.pool).archivedSessionIds).toEqual(['stray', 'live-only'])
   })
 
@@ -940,5 +940,45 @@ describe('registry-global session archive', () => {
     )
     const upgraded = await harness({ pool: legacy })
     expect(upgraded.registry.archivedSessionIds).toEqual([])
+  })
+})
+
+describe('registry-global session delete', () => {
+  it('tombstones via the archive set and detaches the accounting slot durably', async () => {
+    const dir = await makeDir('delete-home')
+    const result = await harness({ sessions: [header('doomed', dir, 100), header('kept', dir, 200)] })
+    const workspace = result.registry.list()[0]!
+    expect(workspace.sessionIds).toEqual(['kept', 'doomed'])
+
+    await result.registry.deleteSession(SessionId('doomed'))
+    expect(result.registry.archivedSessionIds).toEqual(['doomed'])
+    // Delete, unlike archive, drops the accounting slot: no stale ownership.
+    expect(workspace.sessionIds).toEqual(['kept'])
+    expect(storedState(result.pool).archivedSessionIds).toEqual(['doomed'])
+    // The workspace record persists with the detached account.
+    expect(storedRecord(result.pool, workspace.id).sessionIds).toEqual(['kept'])
+  })
+
+  it('rejects unknown ids without writing and detaches nothing', async () => {
+    const dir = await makeDir('delete-strays')
+    const result = await harness({ sessions: [header('stray', dir, 100)] })
+    const workspace = result.registry.list()[0]!
+    await expect(result.registry.deleteSession(SessionId('ghost')))
+      .rejects.toThrow(/unknown session 'ghost'/)
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(workspace.sessionIds).toEqual(['stray'])
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
+  })
+
+  it('restores the tombstone set across restarts', async () => {
+    const dir = await makeDir('delete-restart')
+    const pool = new MemoryMediaPool()
+    const first = await harness({ pool, sessions: [header('s1', dir, 100)] })
+    await first.registry.deleteSession(SessionId('s1'))
+    await first.fiber.dispose()
+
+    const second = await harness({ pool, sessions: [header('s1', dir, 100)] })
+    expect(second.registry.archivedSessionIds).toEqual(['s1'])
+    await second.fiber.dispose()
   })
 })

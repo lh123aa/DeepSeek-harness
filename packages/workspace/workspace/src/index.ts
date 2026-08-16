@@ -39,15 +39,15 @@ export function WorkspaceId(id: string): WorkspaceId {
 }
 
 /**
- * An archiveSession request named a session neither live nor in session
- * persistence — a definite miss only; storage faults propagate as themselves.
+ * An archiveSession/deleteSession request named a session neither live nor in
+ * session persistence — a definite miss only; storage faults propagate as themselves.
  */
 export class WorkspaceUnknownSessionError extends Error {
   /**
    * @param sessionId - The unknown session id.
    */
   constructor(readonly sessionId: SessionId) {
-    super(`cannot archive session '${sessionId}': live sessions and session persistence hold no such session`)
+    super(`unknown session '${sessionId}': live sessions and session persistence hold no such session`)
     this.name = 'WorkspaceUnknownSessionError'
   }
 }
@@ -251,6 +251,36 @@ export class WorkspaceRegistry extends Service {
       }
       const state = this.requireState()
       await this.setState({ ...state, archivedSessionIds: [...state.archivedSessionIds, sessionId] })
+    })
+  }
+
+  /**
+   * Delete one session durably. The registry-global archive set is the
+   * tombstone: the session disappears from every grouping surface and never
+   * resurfaces from persistence baselines, while its log stays untouched (the
+   * durable record is append-only). Any accounting workspace detaches the id
+   * so no stale account slot survives the deletion. An already-archived id
+   * resolves without writing. A session neither live nor in session
+   * persistence fails with {@link WorkspaceUnknownSessionError}.
+   * @param sessionId - The session to delete.
+   * @returns resolution after durability.
+   */
+  deleteSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      if (!(await this.sessionKnown(sessionId))) {
+        throw new WorkspaceUnknownSessionError(sessionId)
+      }
+      // Tombstone first (the visible-critical write; the domain change frame
+      // hides the session everywhere), then detach from any accounting
+      // Workspace — detached entities that did not account the id no-op on
+      // the write chain.
+      const state = this.requireState()
+      if (!state.archivedSessionIds.includes(sessionId)) {
+        await this.setState({ ...state, archivedSessionIds: [...state.archivedSessionIds, sessionId] })
+      }
+      for (const entity of this.entities.values()) {
+        await entity.detachSession(sessionId)
+      }
     })
   }
 

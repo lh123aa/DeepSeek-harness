@@ -567,4 +567,55 @@ describe('Host Workspace increments', () => {
     })
     abort.abort()
   })
+
+  it('deletes a session: tombstone archive, detached account, single frame, busy and unknown rejections', async () => {
+    const { api, ctx, root } = await harness()
+    const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'delete-home') }))).workspace
+    const sessionId = SessionId('session-to-delete')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId })))
+    expect(expectOk(await api.workspace.list(request({}))).archivedSessionIds).toEqual([])
+
+    // A running turn must reject: deleting its row would strand the agent.
+    const agent = ctx.agents.get(sessionId)
+    expect(agent).toBeDefined()
+    // `status` is declared readonly on the Agent contract; the stub object
+    // literal stays writable at runtime, so the test may stage a running turn.
+    Object.defineProperty(agent, 'status', { value: 'running' })
+    const busy = await api.workspace.deleteSession(request({ sessionId }))
+    expect(busy.result).toMatchObject({ ok: false, error: { code: 'agent-busy' } })
+    expect(expectOk(await api.workspace.list(request({}))).archivedSessionIds).toEqual([])
+    Object.defineProperty(agent, 'status', { value: 'idle' })
+
+    const abort = new AbortController()
+    const stream: AsyncIterator<RpcRequest<HostFrame>> =
+      api.events.host(request({}), abort.signal)[Symbol.asyncIterator]()
+    const changed = nextHostFrame(stream)
+    expect(expectOk(await api.workspace.deleteSession(request({ sessionId }))).archivedSessionIds)
+      .toEqual([sessionId])
+    expect(await changed).toMatchObject({
+      payload: { type: 'host/archived-sessions-changed', archivedSessionIds: [sessionId] },
+    })
+
+    // Tombstone persists, the accounting slot is detached, the log stays.
+    const listed = expectOk(await api.workspace.list(request({})))
+    expect(listed.archivedSessionIds).toEqual([sessionId])
+    expect(listed.items[0]?.sessionIds).toEqual([])
+    expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(sessionId)
+
+    // The idempotent repeat emits no second frame: the next observed frame is
+    // the workspace-changed of a later attach, not another archive snapshot.
+    const after = nextHostFrame(stream)
+    expect(expectOk(await api.workspace.deleteSession(request({ sessionId }))).archivedSessionIds)
+      .toEqual([sessionId])
+    const otherSession = SessionId('session-after-delete')
+    expectOk(await api.sessions.create(request({ workspaceId: workspace.workspaceId, sessionId: otherSession })))
+    expect((await after).payload.type).not.toBe('host/archived-sessions-changed')
+
+    const missing = await api.workspace.deleteSession(request({ sessionId: SessionId('session-ghost') }))
+    expect(missing.result).toMatchObject({
+      ok: false,
+      error: { code: 'session-not-found', details: { sessionId: 'session-ghost' } },
+    })
+    abort.abort()
+  })
 })

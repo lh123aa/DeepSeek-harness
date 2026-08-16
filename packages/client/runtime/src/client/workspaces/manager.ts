@@ -232,6 +232,19 @@ export class WorkspaceManager {
   }
 
   /**
+   * Delete one session durably — the tombstone archive set hides the session
+   * everywhere and any accounting Workspace detaches the id, while the log
+   * stays on disk. Returns the full updated archive set on success.
+   * @param sessionId - session to delete.
+   * @returns the wire result.
+   */
+  async deleteSession(sessionId: SessionId): Promise<RpcResult<{ archivedSessionIds: SessionId[] }>> {
+    const { result } = await this.api.workspace.deleteSession({ sessionId })
+    if (result.ok) this.installArchived(result.value.archivedSessionIds)
+    return result
+  }
+
+  /**
    * Host-frame entry. Non-workspace frames are ignored so the runtime can
    * fan one host stream out to both object managers.
    * @param envelope - host stream envelope.
