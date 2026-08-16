@@ -2225,6 +2225,31 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               details: { sessionId, workspaceId: workspace.id },
             })
           }
+        } else {
+          // A caller that named no workspace gets a cwd that may already be
+          // owned by a registered Workspace (e.g. the global New Session
+          // entry running under a project directory). Adopt it into that
+          // Workspace's account so the session does not stray into the
+          // Ungrouped bucket while its directory is owned. An unresolvable
+          // or unowned cwd leaves the session unattached (the bucket is the
+          // designed home for genuinely ownerless sessions).
+          let matched: Workspace | undefined
+          try {
+            matched = await ctx.workspaceRegistry.resolveByPath(cwd)
+          } catch {
+            matched = undefined
+          }
+          if (matched !== undefined) {
+            try {
+              await matched.attachSession(sessionId)
+            } catch (error: unknown) {
+              return err(request, {
+                code: 'workspace-attach-failed',
+                message: `session "${sessionId}" was created but could not attach to workspace "${matched.id}": ${String(error)}`,
+                details: { sessionId, workspaceId: matched.id },
+              })
+            }
+          }
         }
         // Echo the composition the session RUNS so a client can label it
         // without waiting for the next list refresh — the create is the commit

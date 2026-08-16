@@ -364,7 +364,7 @@ describe('workspace.insertBefore', () => {
 })
 
 describe('session creation and Workspace membership', () => {
-  it('attaches a preallocated idempotent session while cwd-only sessions stay ungrouped', async () => {
+  it('attaches a preallocated idempotent session, adopts a cwd-matching workspace, and keeps unowned cwds ungrouped', async () => {
     const { api, ctx, root } = await harness()
     const workspace = expectOk(await api.workspace.create(request({ path: stageDir(root, 'project') }))).workspace
     const sessionId = SessionId('session-workspace-preallocated')
@@ -374,9 +374,18 @@ describe('session creation and Workspace membership', () => {
     expect(expectOk(await api.workspace.list(request({}))).items[0]?.sessionIds).toEqual([sessionId])
     expect(ctx.agents.list().filter(agent => agent.id === sessionId)).toHaveLength(1)
 
+    // A cwd that matches a registered Workspace adopts the session into its
+    // account even without an explicit workspaceId (the global New Session
+    // entry running under a project directory must not stray ungrouped).
+    const adopted = SessionId('session-cwd-adopted')
+    expectOk(await api.sessions.create(request({ cwd: workspace.path, sessionId: adopted })))
+    expect(expectOk(await api.workspace.list(request({}))).items[0]?.sessionIds).toEqual([adopted, sessionId])
+    expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(adopted)
+
+    // A cwd that matches no Workspace stays ungrouped (the designed home).
     const ungrouped = SessionId('session-cwd-only')
-    expectOk(await api.sessions.create(request({ cwd: workspace.path, sessionId: ungrouped })))
-    expect(expectOk(await api.workspace.list(request({}))).items[0]?.sessionIds).toEqual([sessionId])
+    expectOk(await api.sessions.create(request({ cwd: join(root, 'unowned'), sessionId: ungrouped })))
+    expect(expectOk(await api.workspace.list(request({}))).items[0]?.sessionIds).toEqual([adopted, sessionId])
     expect(expectOk(await api.sessions.list(request({}))).items.map(item => item.sessionId)).toContain(ungrouped)
 
     const conflict = await api.sessions.create(request({ cwd: join(workspace.path, 'other'), sessionId }))
