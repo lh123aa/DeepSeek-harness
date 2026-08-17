@@ -982,3 +982,44 @@ describe('registry-global session delete', () => {
     await second.fiber.dispose()
   })
 })
+
+describe('registry stray-session adoption', () => {
+  it('adopts a persisted session whose cwd matches a registered workspace', async () => {
+    const dir = await makeDir('adopt-home')
+    const result = await harness({ sessions: [header('owned', dir, 100)] })
+    const workspace = result.registry.list()[0]!
+    expect(workspace.sessionIds).toEqual(['owned'])
+    // An external tool writes a new session into the same owned directory
+    // after the registry has bootstrapped: it is in the store but no
+    // workspace accounts it yet.
+    result.setSessions([header('owned', dir, 100), header('stray', dir, 200)])
+    expect(workspace.sessionIds).toEqual(['owned'])
+
+    await result.registry.adoptStraySessions()
+    expect(workspace.sessionIds).toEqual(['stray', 'owned'])
+    expect(storedRecord(result.pool, workspace.id).sessionIds).toEqual(['stray', 'owned'])
+    // A second run is idempotent: nothing new to adopt, no extra writes.
+    const writesBefore = result.changes.length
+    await result.registry.adoptStraySessions()
+    expect(result.changes.length).toBe(writesBefore)
+  })
+
+  it('leaves archived and unowned-cwd sessions unaccounted', async () => {
+    const dir = await makeDir('adopt-skip')
+    const other = await makeDir('adopt-other')
+    const result = await harness({ sessions: [header('archived', dir, 100)] })
+    const workspace = result.registry.list()[0]!
+    // Archived id with matching cwd, plus a session whose cwd belongs to no
+    // workspace: neither may be adopted.
+    result.setSessions([
+      header('archived', dir, 100),
+      header('elsewhere', other, 200),
+    ])
+    await result.registry.archiveSession(SessionId('archived'))
+    await result.registry.adoptStraySessions()
+    expect(result.registry.archivedSessionIds).toEqual(['archived'])
+    // 'archived' keeps its bootstrap accounting slot; 'elsewhere' has no
+    // matching workspace so it stays unaccounted (the Ungrouped bucket).
+    expect(workspace.sessionIds).toEqual(['archived'])
+  })
+})

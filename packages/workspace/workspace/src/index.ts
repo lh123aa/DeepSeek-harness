@@ -285,6 +285,44 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * Adopt every persisted session whose canonical cwd belongs to a
+   * registered Workspace but is not yet accounted by any of them. This is
+   * the belt-and-suspenders counterpart to `session.create`'s attach: a
+   * session written to persistence outside the Host RPC path (an external
+   * tool, a worker, a seed) would otherwise surface in the Ungrouped bucket
+   * even though its directory is owned. Archived ids stay untouched, and
+   * sessions with an unresolvable or unowned cwd remain unaccounted (the
+   * bucket is the designed home for genuinely ownerless sessions).
+   * @returns resolution after durability.
+   */
+  adoptStraySessions(): Promise<void> {
+    return this.enqueueOperation(async () => {
+      const accounted = new Set<SessionId>()
+      for (const entity of this.entities.values()) {
+        for (const sessionId of entity.sessionIds) accounted.add(sessionId)
+      }
+      const archived = this.requireState().archivedSessionIds
+      const byPath = new Map<string, WorkspaceEntity>()
+      for (const entity of this.entities.values()) byPath.set(entity.path, entity)
+      const headers = await this.ctx.sessionPersistence.list()
+      for (const header of headers) {
+        if (accounted.has(header.id) || archived.includes(header.id)) continue
+        if (header.cwd === undefined) continue
+        let canonical: string
+        try {
+          canonical = await realpathNormalize(header.cwd)
+        } catch {
+          continue // unresolvable cwd: no Workspace can own it
+        }
+        const owner = byPath.get(canonical)
+        if (owner === undefined) continue
+        await owner.attachSession(header.id)
+        accounted.add(header.id)
+      }
+    })
+  }
+
+  /**
    * Whether a session is live, header-indexed, or present in a fresh
    * persistence listing. Only a definite miss returns false — a failing
    * `sessionPersistence.list()` propagates so storage faults never

@@ -2825,7 +2825,13 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     },
 
     workspace: {
-      list(request) {
+      async list(request) {
+        // Adopt every persisted session whose cwd belongs to a registered
+        // Workspace before projecting: sessions written outside the Host RPC
+        // path (external tools, workers) must land in their owning group, not
+        // the Ungrouped bucket. The registry write chain serializes this with
+        // concurrent creates/deletes; adoptions that change nothing no-op.
+        await ctx.workspaceRegistry.adoptStraySessions()
         return Promise.resolve(ok(request, {
           items: ctx.workspaceRegistry.list().map(workspaceView),
           archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds],
