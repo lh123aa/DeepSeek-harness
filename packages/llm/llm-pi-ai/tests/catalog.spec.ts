@@ -779,6 +779,19 @@ describe('reasoning-dispatch compat switches', () => {
     expect(models.get('dialect-odd')?.compat).toEqual({ thinkingFormat: 'openai', supportsReasoningEffort: false })
   })
 
+  it('drops the OpenAI store field on a gateway whose compat endpoint rejects it', () => {
+    const models = modelsOf({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        compat: { supportsStore: false },
+        models: [{ id: 'storeless', reasoningEfforts: { off: null, low: 'low' } }],
+      },
+    }, 'acme-gateway')
+
+    expect(models.get('storeless')?.compat).toEqual({ supportsStore: false })
+  })
+
   it('merges the switches over the catalog entry’s own compat instead of replacing it', () => {
     const [catalogModel] = getBuiltinModels('deepseek')
     if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')

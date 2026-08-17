@@ -938,10 +938,10 @@ export interface PiAiProviderProfile {
    */
   modelOverrides?: Record<string, PiAiModelOverride>
   /**
-   * Reasoning-dispatch switches for every `openai-completions` model on this
-   * route; each model's own `compat` overrides per field. What neither sets
-   * keeps the installed catalog entry's value, then pi-ai's baseURL-derived
-   * detection.
+   * Reasoning-dispatch and `store` wire switches for every
+   * `openai-completions` model on this route; each model's own `compat`
+   * overrides per field. What neither sets keeps the installed catalog entry's
+   * value, then pi-ai's baseURL-derived detection.
    */
   compat?: PiAiCompatProfile
   /**
@@ -1036,19 +1036,27 @@ export interface PiAiModelProfile {
 export type PiAiModelOverride = Omit<PiAiModelProfile, 'id'>
 
 /**
- * Reasoning-dispatch compatibility switches, set on the route (its models'
+ * Reasoning-dispatch and `store` wire switches, set on the route (its models'
  * default) or per model (winning over the route). Only the switches pi-ai's
- * reasoning dispatch reads are offered; the rest of pi-ai's compat surface
- * keeps its baseURL-derived auto-detection. pi-ai types both fields only on
- * `OpenAICompletionsCompat` — the other wire protocols define their reasoning
- * fields in the protocol itself — so resolution rejects a model-level switch
- * anywhere else, while a route-level default skips past models it cannot fit.
+ * reasoning dispatch reads, plus the one `store` toggle, are offered; the rest
+ * of pi-ai's compat surface keeps its baseURL-derived auto-detection. pi-ai
+ * types these fields only on `OpenAICompletionsCompat` — the other wire
+ * protocols define their reasoning fields in the protocol itself — so
+ * resolution rejects a model-level switch anywhere else, while a route-level
+ * default skips past models it cannot fit.
  */
 export interface PiAiCompatProfile {
   /** Reasoning parameter format the endpoint expects; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
   thinkingFormat?: PiAiThinkingFormat
   /** Whether the endpoint accepts `reasoning_effort`; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
   supportsReasoningEffort?: boolean
+  /**
+   * Whether the endpoint accepts the OpenAI `store` request field; absent keeps
+   * the catalog entry's, then pi-ai's baseURL-derived detection. False for an
+   * OpenAI-compatible gateway that rejects it — Google's OpenAI-compat endpoint
+   * fails the field with 400 — so pi-ai never sends `store` on this route.
+   */
+  supportsStore?: boolean
 }
 
 /** One request modality a pi-ai model may accept. */

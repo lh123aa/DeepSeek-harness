@@ -35,6 +35,13 @@ describe('reasoning schema boundary', () => {
   it('rejects a thinking format outside the offered set', () => {
     expect(configWith({ compat: { thinkingFormat: 'quantum' } })).toThrow(/expected/)
   })
+
+  it('accepts the supportsStore wire toggle and preserves a declared false', () => {
+    type Materialized = { providers: Record<string, { compat?: { supportsStore?: unknown } }> }
+    const materialized = routeWith({ compat: { supportsStore: false } })() as Materialized
+    expect(materialized.providers['acme-gateway']?.compat?.supportsStore).toBe(false)
+    expect(configWith({ compat: { supportsStore: 'yes' } })).toThrow(/expected/)
+  })
 })
 
 describe('modality schema boundary', () => {
