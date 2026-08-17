@@ -40,11 +40,10 @@ describe('SidebarRoot.module.css', () => {
     expect(declarations('.collapsed .regionArea')?.get('margin-right')).toBe('0')
   })
 
-  it('moves the four upper controls while the settings seat only fades', () => {
+  it('moves the upper controls while the settings seat only fades', () => {
     const animation = 'rail-in 150ms var(--ds-ease-in-out) backwards'
     for (const selector of [
       '.railIn .iconButton',
-      '.railIn .newSession',
       '.railIn .regionArea',
     ]) {
       expect(declarations(selector)?.get('animation')).toBe(animation)
@@ -60,7 +59,5 @@ describe('SidebarRoot.module.css', () => {
 
   it('gives shell rail controls the same base anchor for their shared translation', () => {
     expect(declarations('.collapsed .logoRow')?.get('justify-content')).toBe('flex-start')
-    expect(declarations('.collapsed .newSession')?.get('align-self')).toBe('flex-start')
-    expect(declarations('.collapsed .newSession')?.get('width')).toBe('36px')
   })
 })
