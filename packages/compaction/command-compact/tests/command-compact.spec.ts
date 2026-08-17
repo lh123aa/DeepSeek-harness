@@ -219,6 +219,18 @@ describe('/compact human command', () => {
     expect(execution.commandId).toBe(expectLastLifecycle(test, '', execution.result))
   })
 
+  it('distinguishes a summary truncated at its output token cap from a generic summary failure', async () => {
+    const test = await harness()
+    const truncated = new Error('summarization truncated at the token cap (incomplete checkpoint)') as Error & { code?: string }
+    truncated.code = 'MAX_TOKENS'
+    test.compact.failure = new ManualCompactionError('summary', 'backend detail', { cause: truncated })
+    const execution = await run(test)
+    expect(execution.result).toEqual({
+      kind: 'error',
+      text: 'Compaction could not produce a complete summary: the summarization call hit its output token cap. The conversation is unchanged; raise the compaction maxTokens setting (or configure a summarization model) and retry.',
+    })
+  })
+
   it('preserves cancellation and unexpected implementation failures', async () => {
     const cancelled = await harness()
     const controller = new AbortController()

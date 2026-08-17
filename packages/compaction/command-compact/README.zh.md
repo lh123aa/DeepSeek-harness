@@ -20,7 +20,7 @@
 |---|---|
 | `busy` | `Compaction is unavailable because this process has an active compaction, or the agent is not idle.` |
 | `changed` | `The history selected for compaction changed before it could be replaced. The conversation is unchanged; the attempt is recorded in the session log.` |
-| `summary` | `Compaction could not produce a useful summary. The conversation is unchanged; the attempt is recorded in the session log.` |
+| `summary` | `Compaction could not produce a useful summary. The conversation is unchanged; the attempt is recorded in the session log.` 当 cause 链携带摘要器的 `MAX_TOKENS` 标记时，直接结果会改为指明输出 token 上限及解决办法：`Compaction could not produce a complete summary: the summarization call hit its output token cap. The conversation is unchanged; raise the compaction maxTokens setting (or configure a summarization model) and retry.` |
 | `commit` | `Compaction did not finish cleanly; some session history may have changed. Inspect the current session state before retrying.` |
 | `persistence` | `Compaction finished, but the session could not be saved.` |
 

@@ -20,7 +20,7 @@ Expected `ManualCompactionError` codes become stable direct errors:
 |---|---|
 | `busy` | `Compaction is unavailable because this process has an active compaction, or the agent is not idle.` |
 | `changed` | `The history selected for compaction changed before it could be replaced. The conversation is unchanged; the attempt is recorded in the session log.` |
-| `summary` | `Compaction could not produce a useful summary. The conversation is unchanged; the attempt is recorded in the session log.` |
+| `summary` | `Compaction could not produce a useful summary. The conversation is unchanged; the attempt is recorded in the session log.` When the cause chain carries the summarizer's `MAX_TOKENS` marker, the direct result instead names the output token cap and the remedy: `Compaction could not produce a complete summary: the summarization call hit its output token cap. The conversation is unchanged; raise the compaction maxTokens setting (or configure a summarization model) and retry.` |
 | `commit` | `Compaction did not finish cleanly; some session history may have changed. Inspect the current session state before retrying.` |
 | `persistence` | `Compaction finished, but the session could not be saved.` |
 

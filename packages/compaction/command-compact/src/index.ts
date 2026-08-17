@@ -19,6 +19,18 @@ function assertNever(value: never): never {
 }
 /* v8 ignore stop */
 
+/**
+ * Whether a manual compaction failure was caused by the summarization call
+ * reaching its output token cap, rather than by a generic summary failure.
+ * @param error - classified manual compaction failure whose cause chain is inspected.
+ */
+function causeIsTokenCap(error: ManualCompactionError): boolean {
+  for (let current: unknown = error.cause; current instanceof Error; current = current.cause) {
+    if ((current as Error & { code?: string }).code === 'MAX_TOKENS') return true
+  }
+  return false
+}
+
 /** Convert expected capability failures into concise human-only outcomes. */
 function expectedFailure(error: ManualCompactionError): CommandResult {
   switch (error.code) {
@@ -34,11 +46,15 @@ function expectedFailure(error: ManualCompactionError): CommandResult {
         kind: 'error',
         text: 'The history selected for compaction changed before it could be replaced. The conversation is unchanged; the attempt is recorded in the session log.',
       }
-    case 'summary':
+    case 'summary': {
+      const truncated = causeIsTokenCap(error)
       return {
         kind: 'error',
-        text: 'Compaction could not produce a useful summary. The conversation is unchanged; the attempt is recorded in the session log.',
+        text: truncated
+          ? 'Compaction could not produce a complete summary: the summarization call hit its output token cap. The conversation is unchanged; raise the compaction maxTokens setting (or configure a summarization model) and retry.'
+          : 'Compaction could not produce a useful summary. The conversation is unchanged; the attempt is recorded in the session log.',
       }
+    }
     case 'commit':
       return {
         kind: 'error',
