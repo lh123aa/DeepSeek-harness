@@ -38,7 +38,7 @@
   - text: javascript
   - button "Copy"
   - code: "return { name: \"snapshot-noop\", apply(ctx) {} }"
-- text: Result Defined snap-1/pkg-1 (snapshot noop); it is not running yet. Use cordis_run to activate this Package. Run controls live in the Cordis panel above Settings
+- text: Result Defined snap-1/pkg-1 (snapshot noop); it is not running yet. Use cordis_run to activate this Package. Run controls live in Settings → Plugins → Dynamic plugins
 - button "Inspect"
 - button "Think The Host returned snap-1/pkg-1, so I will request its first activation.":
   - img
