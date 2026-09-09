@@ -12,6 +12,8 @@ import type {
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
   WorkspaceDeleteValue,
+  WorkspaceDeleteSessionRequest,
+  WorkspaceDeleteSessionValue,
   WorkspaceFollowFrame,
   WorkspaceInsertBeforeRequest,
   WorkspaceInsertSessionBeforeRequest,
@@ -107,6 +109,17 @@ export class WorkspaceController extends TypertRemoteService {
   @Remote('archiveSession')
   archiveSession(request: WorkspaceArchiveSessionRequest): Promise<WorkspaceArchiveValue> {
     return this.commands.archiveSession(request)
+  }
+
+  /**
+   * Permanently delete one known Session: detach from workspaces, remove from
+   * the archive set, and erase its stored log from disk.
+   * @param request - Session identity to delete.
+   * @returns deletion confirmation.
+   */
+  @Remote('deleteSession')
+  deleteSession(request: WorkspaceDeleteSessionRequest): Promise<WorkspaceDeleteSessionValue> {
+    return this.commands.deleteSession(request)
   }
 
   /**

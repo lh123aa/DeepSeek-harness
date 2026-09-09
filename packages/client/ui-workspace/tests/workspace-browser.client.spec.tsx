@@ -80,6 +80,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
+    deleteSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
@@ -453,6 +454,45 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
+  it('deletes a session from its row menu through the confirmation dialog', async () => {
+    const deleteSession = vi.fn(async () => {})
+    mount({
+      useSessions: hook(sessionState([summary('doomed-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['doomed-s'])])),
+      deleteSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“doomed-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除会话' }))
+    expect(screen.getByRole('dialog', { name: '删除会话？' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    await waitFor(() => {
+      expect(deleteSession).toHaveBeenCalledWith(sid('doomed-s'))
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '删除会话？' })).toBeNull()
+    })
+  })
+
+  it('keeps the delete dialog open and shows the failure when the delete call rejects', async () => {
+    const rejection = new Error('delete exploded')
+    const deleteSession = vi.fn(async () => { throw rejection })
+    mount({
+      useSessions: hook(sessionState([summary('doomed-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['doomed-s'])])),
+      deleteSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“doomed-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除会话' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe('delete exploded')
+    })
+    expect(screen.getByRole('dialog', { name: '删除会话？' })).toBeTruthy()
+  })
+
   it('renders a fork child as a top-level row without a session twist', () => {
     const parent = summary('parent-s', 2)
     const child = { ...summary('child-s', 1), parentId: parent.id }
@@ -483,17 +523,17 @@ describe('WorkspaceBrowser', () => {
     expect(startSession).toHaveBeenCalledWith(wid('alpha'))
   })
 
-  it('auto-expands the Ungrouped bucket for a loose current session; its header has no menu and its ＋ is inert', () => {
+  it('does not render a loose current session when no Workspace owns it', () => {
     const startSession = vi.fn()
     mount({
       useSessions: hook(sessionState([summary('loose', 1)], { current: sid('loose') })),
       useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
       startSession,
     })
-    // The loose session's group is UNGROUPED_KEY: expanded by the effect.
-    expect(screen.getByText('loose')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: '工作区“未分组”的操作' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '在“未分组”中新建会话' }))
+    // The session has no Workspace home, so it never appears in the grouped
+    // sidebar (it stays reachable through the flat list and content search).
+    expect(screen.queryByText('loose')).toBeNull()
+    expect(screen.getByText('alpha')).toBeTruthy()
     expect(startSession).not.toHaveBeenCalled()
   })
 
@@ -1021,53 +1061,21 @@ describe('WorkspaceBrowser', () => {
     expect(insertSessionBefore).toHaveBeenCalledTimes(1)
   })
 
-  it('persists Ungrouped drag order in both modes without writing a Host Workspace account', async () => {
+  it('does not render or drag loose Sessions when no Workspace owns them', async () => {
     const insertSessionBefore = vi.fn(async () => {})
     const sessions = sessionState([summary('one', 3), summary('two', 2), summary('three', 1)])
-    const b = mount({
+    mount({
       useSessions: hook(sessions),
       useWorkspaces: hook(workspaceState([])),
       insertSessionBefore,
     })
-    fireEvent.click(screen.getByText('未分组'))
-
-    const dragAfter = (sourceTitle: string, targetTitle: string): void => {
-      const source = screen.getByText(sourceTitle).closest('[role="treeitem"]') as HTMLElement
-      const target = screen.getByText(targetTitle).closest('[role="treeitem"]') as HTMLElement
-      target.getBoundingClientRect = () => ({
-        top: 150, bottom: 184, left: 0, right: 200, width: 200, height: 34, x: 0, y: 150, toJSON: () => ({}),
-      })
-      fireEvent.dragStart(source, { dataTransfer: dragData() })
-      fireDrag(target, 'drop', 180)
-    }
-
-    dragAfter('one', 'three')
-    expect(b.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
-    dragAfter('two', 'one')
-    expect(b.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['three', 'one', 'two'])
+    // No Workspace owns any session, so the grouped sidebar renders no bucket
+    // and no loose rows; they stay reachable through the flat list and search.
+    expect(screen.queryByText('未分组')).toBeNull()
+    expect(screen.queryByText('one')).toBeNull()
+    expect(screen.queryByText('two')).toBeNull()
+    expect(screen.queryByText('three')).toBeNull()
     expect(insertSessionBefore).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
-    await waitFor(() => {
-      expect(b.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['one', 'two', 'three'])
-    })
-    dragAfter('one', 'three')
-    expect(b.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
-    expect(insertSessionBefore).not.toHaveBeenCalled()
-
-    b.view.unmount()
-    const restored = mount({
-      useSessions: hook(sessions),
-      useWorkspaces: hook(workspaceState([])),
-      insertSessionBefore,
-    })
-    expect(restored.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
-    expect(screen.getAllByRole('treeitem').slice(1).map(row => row.textContent)).toEqual([
-      expect.stringContaining('two'),
-      expect.stringContaining('three'),
-      expect.stringContaining('one'),
-    ])
   })
 
   it('still sends the reorder when the dragged row left the group mid-drag', () => {
@@ -1244,7 +1252,7 @@ describe('WorkspaceBrowser', () => {
     const dialog = screen.getByRole('dialog', { name: '删除工作区' })
     expect(dialog.textContent).toContain('将把“Alpha”从工作区列表中移除')
     expect(dialog.textContent).toContain('文件夹与会话记录会保留')
-    expect(dialog.textContent).toContain('其会话将显示在“未分组”下')
+    expect(dialog.textContent).toContain('其会话将不再归属于此工作区')
 
     const confirm = screen.getByRole<HTMLButtonElement>('button', { name: '删除工作区' })
     fireEvent.click(confirm)

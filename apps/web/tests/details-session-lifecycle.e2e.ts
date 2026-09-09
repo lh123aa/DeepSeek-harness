@@ -131,18 +131,17 @@ describe.skipIf(MODE === 'record')('web e2e: details panel follows the current S
     await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
     expect(await page.getByText('Details', { exact: true }).isVisible()).toBe(false)
 
-    const ungrouped = page.getByText('Ungrouped', { exact: true })
-    const ungroupedRow = ungrouped.locator('..').locator('..')
-    const ungroupedSection = ungroupedRow.locator('..')
-    await expect.poll(async () => {
-      if (await ungroupedRow.getAttribute('aria-expanded') !== 'true') {
-        await ungrouped.click()
-        await page.waitForTimeout(50)
-      }
-      return await ungroupedRow.getAttribute('aria-expanded')
-    }, { timeout: 5_000 }).toBe('true')
-    const seeded = ungroupedSection.locator('[role="treeitem"]').nth(1)
-    await seeded.click()
+    // With adoptSessions the session lives inside a workspace group rather
+    // than Ungrouped; expand the first group and pick its first session row.
+    const groupRow = page.locator('[role="treeitem"][aria-expanded]').first()
+    await groupRow.waitFor({ timeout: 10_000 })
+    if (await groupRow.getAttribute('aria-expanded') !== 'true') {
+      await groupRow.click()
+      await page.waitForTimeout(50)
+    }
+    const sessionRow = groupRow.locator('xpath=ancestor::*[contains(@class, "groupSection")][1]')
+      .locator('[role="treeitem"]').nth(1)
+    await sessionRow.click()
     await page.getByText('DONE', { exact: true }).waitFor({ timeout: 15_000 })
     await expect.poll(() => detailsTrack(page), { timeout: 5_000 }).toBe(0)
     expect(tripwire.pageErrors).toEqual([])

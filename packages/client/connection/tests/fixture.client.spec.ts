@@ -201,6 +201,7 @@ interface FixtureWorkspaceRequests {
     readonly beforeSessionId?: SessionId
   }
   archiveSession: { readonly sessionId: SessionId }
+  deleteSession: { readonly sessionId: SessionId }
 }
 
 interface FixtureWorkspaceValues {
@@ -210,6 +211,7 @@ interface FixtureWorkspaceValues {
   insertBefore: { readonly workspaceIds: readonly WorkspaceId[] }
   insertSessionBefore: { readonly workspace: FixtureWorkspaceView }
   archiveSession: { readonly archivedSessionIds: readonly SessionId[] }
+  deleteSession: { readonly deleted: true }
 }
 
 type FixtureWorkspaceApi = {
@@ -478,6 +480,7 @@ function createWorkspaceApi(rpc: ClientConnectionRpc): FixtureWorkspaceApi {
     insertBefore: (request, signal) => call('insertBefore', request, signal),
     insertSessionBefore: (request, signal) => call('insertSessionBefore', request, signal),
     archiveSession: (request, signal) => call('archiveSession', request, signal),
+    deleteSession: (request, signal) => call('deleteSession', request, signal),
   }
 }
 
@@ -490,6 +493,7 @@ function createWorkspaceClient(rpc: ClientConnectionRpc): FixtureWorkspaceClient
     insertBefore: (request, signal) => api.insertBefore(req(request), signal),
     insertSessionBefore: (request, signal) => api.insertSessionBefore(req(request), signal),
     archiveSession: (request, signal) => api.archiveSession(req(request), signal),
+    deleteSession: (request, signal) => api.deleteSession(req(request), signal),
   }
 }
 
@@ -1287,6 +1291,28 @@ describe('createFixtureApi', () => {
     const sessions = await api.sessions.list(req({}))
     if (!sessions.result.ok) throw new Error('session list failed')
     expect(sessions.result.value.items.map(session => session.sessionId)).toContain('fx-alpha')
+  })
+
+  it('workspace.deleteSession removes the session from its account and archive and errors on unknown ids', async () => {
+    const api = createFixtureApi()
+    await api.workspace.archiveSession(req({ sessionId: sid('fx-alpha') }))
+
+    const missing = await api.workspace.deleteSession(req({ sessionId: sid('fx-void') }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'session/not-found' } })
+
+    const deleted = await api.workspace.deleteSession(req({ sessionId: sid('fx-alpha') }))
+    expect(deleted.result).toEqual({ ok: true, value: { deleted: true } })
+    let baseline = await readWorkspaceBaseline(api.workspaceRemote)
+    expect(baseline.archivedSessionIds).not.toContain(sid('fx-alpha'))
+    expect(baseline.items.find(item => item.workspaceId === 'fx-ws-fixture')?.sessionIds)
+      .toEqual(['fx-beta', 'fx-gamma'])
+
+    // Deleting a session that is not archived must not disturb the archive set.
+    await api.workspace.deleteSession(req({ sessionId: sid('fx-beta') }))
+    baseline = await readWorkspaceBaseline(api.workspaceRemote)
+    expect(baseline.archivedSessionIds).toEqual([])
+    expect(baseline.items.find(item => item.workspaceId === 'fx-ws-fixture')?.sessionIds)
+      .toEqual(['fx-gamma'])
   })
 
   it('session.create({workspaceId}) lands on the account and unknown ids error', async () => {

@@ -8,6 +8,8 @@ import type {
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
+  WorkspaceDeleteSessionRequest,
+  WorkspaceDeleteSessionValue,
   WorkspaceDeleteValue,
   WorkspaceFollowFrame,
   WorkspaceInsertBeforeRequest,
@@ -84,6 +86,10 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
     request: WorkspaceArchiveSessionRequest,
   ) => Promise<RemoteResult<WorkspaceArchiveValue>> = request =>
     Promise.resolve(remoteOk({ archivedSessionIds: [request.sessionId] }))
+  onDeleteSession: (
+    _request: WorkspaceDeleteSessionRequest,
+  ) => Promise<RemoteResult<WorkspaceDeleteSessionValue>> =
+    () => Promise.resolve(remoteOk({ deleted: true }))
 
   create(request: WorkspaceCreateRequest): Promise<RemoteResult<WorkspaceCreateValue>> {
     this.record('create', request)
@@ -113,6 +119,11 @@ class FakeWorkspaceRemote implements WorkspaceRemote {
   archiveSession(request: WorkspaceArchiveSessionRequest): Promise<RemoteResult<WorkspaceArchiveValue>> {
     this.record('archiveSession', request)
     return this.onArchiveSession(request)
+  }
+
+  deleteSession(request: WorkspaceDeleteSessionRequest): Promise<RemoteResult<WorkspaceDeleteSessionValue>> {
+    this.record('deleteSession', request)
+    return this.onDeleteSession(request)
   }
 
   async *follow(_signal?: AbortSignal): AsyncGenerator<WorkspaceFollowFrame> {}
@@ -306,6 +317,15 @@ describe('ClientWorkspaceModel', () => {
     remote.onArchiveSession = request => Promise.resolve(remoteOk({ archivedSessionIds: [request.sessionId] }))
     await expect(model.archiveSession(sid('fresh'))).resolves.toMatchObject({ ok: true })
     expect(model.getSnapshot().archivedSessionIds).toEqual(['fresh'])
+
+    remote.onDeleteSession = () => Promise.resolve(workspaceError(
+      new RemoteError('session/not-found', 'missing', { sessionId: sid('ghost') }),
+    ))
+    await expect(model.deleteSession(sid('ghost'))).resolves.toMatchObject({ ok: false })
+    expect(model.getSnapshot().archivedSessionIds).toEqual(['fresh'])
+    await expect(model.deleteSession(sid('fresh'))).resolves.toMatchObject({ ok: true })
+    expect(model.getSnapshot().archivedSessionIds).toEqual([])
+    expect(remote.calls).toContainEqual({ method: 'deleteSession', request: { sessionId: 'fresh' } })
   })
 
   it('keeps the newest row and places Workspaces missing from partial orders last', async () => {

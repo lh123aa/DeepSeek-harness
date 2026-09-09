@@ -47,7 +47,10 @@ async function harness() {
   const storageDomain = new DomainFacility(ctx, { backend: 'memory', routes: {} })
   ctx.storage.mount('domain', storageDomain)
   ctx.provide('storageDomain', storageDomain)
-  ctx.provide('sessionPersistence', { list: () => Promise.resolve([]) } as never)
+  ctx.provide('sessionPersistence', {
+    list: () => Promise.resolve([]),
+    deleteSession: vi.fn(async () => undefined),
+  } as never)
   await ctx.plugin(WorkspaceRegistry)
   const dispose = (): void => {}
   ctx.provide('typert', {
@@ -215,6 +218,26 @@ describe('WorkspaceController commands', () => {
     await expect(controller.archiveSession({ sessionId: session.id }))
       .resolves.toEqual({ archivedSessionIds: [session.id] })
     await expect(controller.archiveSession({ sessionId: SessionId('unknown') }))
+      .rejects.toMatchObject({ code: 'session/not-found' })
+  })
+
+  it('deletes only known Sessions and maps unknown ids to session/not-found', async () => {
+    const { controller, ctx, root } = await harness()
+    const home = await controller.create({ path: stageDir(root, 'delete-home') })
+    const session = ctx.sessions.create(SessionId('delete-me'), {
+      meta: { cwd: home.workspace.path },
+    })
+    const workspace = ctx.workspaceRegistry.get(home.workspace.workspaceId)
+    if (workspace === undefined) throw new Error('fixture Workspace disappeared')
+    await workspace.attachSession(session.id)
+    await controller.archiveSession({ sessionId: session.id })
+
+    await expect(controller.deleteSession({ sessionId: session.id }))
+      .resolves.toEqual({ deleted: true })
+    expect(workspace.sessionIds).not.toContain(session.id)
+    expect(ctx.workspaceRegistry.archivedSessionIds).not.toContain(session.id)
+
+    await expect(controller.deleteSession({ sessionId: SessionId('unknown') }))
       .rejects.toMatchObject({ code: 'session/not-found' })
   })
 })

@@ -214,6 +214,11 @@ export interface Config {
   readonly coldBlankProbeMaxBytes?: number
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /**
+   * Default working directory for new sessions when neither a workspace nor an explicit cwd is provided.
+   * When absent falls back to `process.cwd()`.
+   */
+  readonly defaultCwd?: string
 }
 ```
 
@@ -2650,6 +2655,22 @@ export interface Config {
 
 Source: [`packages/shell/tool-bash-persistent/src/index.ts:432`](../packages/shell/tool-bash-persistent/src/index.ts)
 
+<a id="deepseek-aidsh-tool-docx"></a>
+
+## `@deepseek-ai/dsh-tool-docx`
+
+Requires: `tools` · `fs` · `systemPrompt`
+
+```ts config-catalog
+/** Plugin config (all optional — `Config` supplies the defaults). */
+export interface Config {
+  /** Maximum output bytes one `read_docx` call retains inline. */
+  maxBytes?: number
+}
+```
+
+Source: [`packages/fs/tool-docx/src/index.ts:17`](../packages/fs/tool-docx/src/index.ts)
+
 <a id="deepseek-aidsh-tool-fs"></a>
 
 ## `@deepseek-ai/dsh-tool-fs`
@@ -2776,6 +2797,24 @@ export interface Config {
 ```
 
 Source: [`packages/lsp/tool-lsp/src/index.ts:57`](../packages/lsp/tool-lsp/src/index.ts)
+
+<a id="deepseek-aidsh-tool-pdf"></a>
+
+## `@deepseek-ai/dsh-tool-pdf`
+
+Requires: `tools` · `fs` · `systemPrompt`
+
+```ts config-catalog
+/** Plugin config (all optional — `Config` supplies the defaults). */
+export interface Config {
+  /** Maximum pages one `read_pdf` call extracts. */
+  maxPages?: number
+  /** Maximum output bytes one `read_pdf` call retains inline. */
+  maxBytes?: number
+}
+```
+
+Source: [`packages/fs/tool-pdf/src/index.ts:17`](../packages/fs/tool-pdf/src/index.ts)
 
 <a id="deepseek-aidsh-tool-pwsh"></a>
 
@@ -3174,7 +3213,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/bundle/web-app/src/index.ts:44`](../packages/bundle/web-app/src/index.ts)
+Source: [`packages/bundle/web-app/src/index.ts:45`](../packages/bundle/web-app/src/index.ts)
 
 <a id="deepseek-aidsh-web-fetch-http"></a>
 
@@ -3328,6 +3367,28 @@ export interface Config {
 
 Source: [`packages/workflow/workflow-worker-thread/src/index.ts:32`](../packages/workflow/workflow-worker-thread/src/index.ts)
 
+<a id="deepseek-aidsh-workspace"></a>
+
+## `@deepseek-ai/dsh-workspace`
+
+Requires: `storageDomain` · `sessionPersistence`
+
+```ts config-catalog
+/** Workspace registry composition config. */
+export interface Config {
+  /**
+   * Adopt every created session into a workspace when it carries a groupable
+   * canonical cwd. Off by default. When on, a workspace is resolved for the
+   * session's canonical cwd, and one is created when the directory is not yet
+   * owned; a session with no groupable cwd stays Ungrouped as the documented
+   * last resort rather than fabricating membership.
+   */
+  readonly adoptSessions?: boolean
+}
+```
+
+Source: [`packages/workspace/workspace/src/index.ts:69`](../packages/workspace/workspace/src/index.ts)
+
 ## Loadable plugins with no config
 
 These load from a `cordis.yml` entry with no `config:` block; they declare no configuration API.
@@ -3408,7 +3469,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-tool-subagent-control` — requires `tools` · `subagents` ([`packages/subagent/tool-subagent-control/src/index.ts`](../packages/subagent/tool-subagent-control/src/index.ts))
 - `@deepseek-ai/dsh-user-questions` ([`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts))
 - `@deepseek-ai/dsh-webhook` — requires `agents` · `agentDefaultModel` · `agentPresets` · `permissionPresets` · `sessionTitle` · `workspaceRegistry` ([`packages/webhook/webhook/src/index.ts`](../packages/webhook/webhook/src/index.ts))
-- `@deepseek-ai/dsh-workspace` — requires `storageDomain` · `sessionPersistence` ([`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts))
 
 ## Seam packages (not directly loadable)
 

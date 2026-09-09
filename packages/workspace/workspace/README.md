@@ -48,6 +48,16 @@ The package takes no configuration of its own; it needs a session store, a sessi
 
 With these rows mounted, creating a project shows up in the list immediately and survives a restart; the first start also groups existing sessions by the directory they ran in. If a required peer is missing, the workspace feature stays unavailable until it is mounted.
 
+Adoption is opt-in and off by default:
+
+```yaml
+- name: '@deepseek-ai/dsh-workspace'
+  config:
+    adoptSessions: true   # default false — adopt every created session into a workspace
+```
+
+When `adoptSessions` is off (default), a session is grouped only when its creator explicitly attaches it, and sessions created outside the workspace flow stay Ungrouped. When it is on, every `session/created` is adopted: the session's canonical cwd resolves to its owning workspace (created when the directory is not yet owned), so an auto-generated conversation is never left Ungrouped unless its cwd cannot resolve to an existing directory at all.
+
 ### Creating and ordering projects
 
 Create a project from any directory that exists: give its path and an optional title, and the project appears in the list, newest first. A path that does not exist, or a file instead of a directory, is rejected and nothing changes; creating a project for a directory that already has one returns the existing project unchanged. Rename a project at any time, and move it to any position in the list:
@@ -158,7 +168,7 @@ Independent of live requests: the package never touches a request prefix, so it 
 These limits define when the project list is a poor fit or needs special operational care. They are current package constraints, not a task backlog.
 
 - **Removal never deletes data** — removing a project leaves its folder, files, and session histories in place; those sessions become ungrouped, and session deletion or folder removal are separate, absent capabilities ([decision](../../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.md)).
-- **A session joins only with a recorded directory** — a session belongs to a project only when its record carries a directory that resolves to the project's path; sessions without one stay ungrouped, and a session from another directory cannot be moved in.
+- **A session joins only with a recorded directory** — a session belongs to a project only when its record carries a directory that resolves to the project's path; sessions without one stay ungrouped, and a session from another directory cannot be moved in. Even with `adoptSessions` on, a session whose cwd cannot resolve to an existing directory stays Ungrouped: the header cwd is immutable and membership requires the cwd to equal the workspace path, so no fallback workspace can adopt it without rewriting the header or relaxing that rule ([Agent Note](../../../.agents/notes/rejected/feature/2026-09-05-no-ungrouped-sessions.md)).
 - **External changes are seen late** — if another process deletes or damages a directory, the project reflects it only at the next refresh or restart.
 - **Archiving is one-way** — a hidden session keeps its history and its place, but no unarchive action exists yet; the archive set is a durable display filter.
 - **Re-adding a directory starts fresh** — after removal, adding the same directory again creates a new project with an empty session list; the old sessions do not come back automatically.

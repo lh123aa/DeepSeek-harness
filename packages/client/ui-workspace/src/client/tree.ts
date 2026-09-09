@@ -1,7 +1,8 @@
 /**
  * Derives the workspace browser tree from Host Workspace order and membership.
- * Unassigned Sessions trail under Ungrouped; only the selected blank Session
- * remains visible.
+ * Every session belongs to a workspace; the grouping view shows only real
+ * Workspace sections and never a separate "Ungrouped" bucket (a session whose
+ * cwd no longer resolves stays reachable through the flat list and search).
  */
 import {
   type SessionListState, type SessionSearchResultItem, type SessionSummary,
@@ -48,12 +49,12 @@ export type SessionOrderBy = 'manual' | 'updated'
 
 /** One workspace group section: header row facts + visible top-level session rows. */
 export interface GroupNode {
-  /** Group key: the workspace id or {@link UNGROUPED_KEY}. */
+  /** Group key: the workspace id. */
   key: string
-  /** Backing Workspace id; absent only for the ungrouped bucket. */
+  /** Backing Workspace id. */
   workspaceId: WorkspaceId | undefined
   cwd: string | undefined
-  /** Workspace creation time (epoch ms); absent only for the ungrouped bucket. */
+  /** Workspace creation time (epoch ms). */
   createdAt: number | undefined
   label: string
   /** Total visible sessions in the group. */
@@ -91,8 +92,6 @@ export interface SearchResultSet {
 /** Viewing state consumed by the derivation. */
 export interface TreeView {
   expandedGroups: readonly string[]
-  /** Browser-local order for Sessions without a backing Workspace account. */
-  ungroupedOrder?: readonly string[]
 }
 
 interface Group {
@@ -106,9 +105,8 @@ interface Group {
 
 /**
  * Directory display label: basename of the path (both separators accepted).
- * Ungrouped-bucket fallback for surfaces without a workspace title.
- * @param cwd - directory path, or undefined for the ungrouped bucket.
- * @returns basename, the raw cwd when it has no basename, or an empty ungrouped marker.
+ * @param cwd - directory path, or undefined when no directory is recorded.
+ * @returns basename, the raw cwd when it has no basename, or an empty marker.
  */
 export function workspaceLabel(cwd: string | undefined): string {
   if (cwd === undefined || cwd === '') return ''
@@ -156,74 +154,34 @@ function buildGroup(
   createdAt: number | undefined,
   label: string,
   members: readonly SessionSummary[],
-  order: 'account' | 'recency',
 ): Group {
-  const sessions = [...members]
-  // Real Workspace order comes from sessionIds. Ungrouped falls back to
-  // recency until the browser supplies its persisted local order.
-  if (order === 'recency') sessions.sort(byRecency)
-  return { key, workspaceId, cwd, createdAt, label, sessions }
-}
-
-/** Apply a stored Ungrouped order and append newly loose Sessions by recency. */
-function orderedUngrouped(members: readonly SessionSummary[], stored: readonly string[]): SessionSummary[] {
-  const byId = new Map(members.map(session => [session.id as string, session]))
-  const included = new Set<string>()
-  const ordered: SessionSummary[] = []
-  for (const key of stored) {
-    const session = byId.get(key)
-    if (session === undefined || included.has(key)) continue
-    ordered.push(session)
-    included.add(key)
-  }
-  for (const session of [...members].sort(byRecency)) {
-    if (included.has(session.id)) continue
-    ordered.push(session)
-  }
-  return ordered
+  return { key, workspaceId, cwd, createdAt, label, sessions: [...members] }
 }
 
 /**
  * Group Sessions by Host Workspace: one group per entity in stable Host
  * order, with members resolved from sessionIds in their stored order. Sessions
- * outside every Workspace trail in the browser-local Ungrouped order, which
- * falls back to recency before that order is initialized.
+ * outside every Workspace are deliberately not rendered in a dedicated bucket:
+ * every session belongs to a workspace, and a session whose cwd no longer
+ * resolves stays reachable through the flat list and content search.
  */
 function groupByWorkspace(
   list: SessionListState,
   workspaces: readonly WorkspaceView[],
   archived: ReadonlySet<SessionId>,
-  ungroupedOrder: readonly string[] | undefined,
 ): Group[] {
   const groups: Group[] = []
-  const accounted = new Set<SessionId>()
   for (const workspace of workspaces) {
     const members: SessionSummary[] = []
     for (const id of workspace.sessionIds) {
       const summary = list.byId[id]
       if (summary === undefined) continue // account may lead the list pull; the row appears when the summary lands
-      accounted.add(id)
       if (!sessionVisible(summary, list.current, archived)) continue
       members.push(summary)
     }
     groups.push(buildGroup(
       workspace.workspaceId, workspace.workspaceId, workspace.path,
-      Date.parse(workspace.createdAt), workspace.title, members, 'account',
-    ))
-  }
-  const stray = list.ids
-    .map(id => list.byId[id])
-    .filter((s): s is SessionSummary =>
-      s !== undefined && !accounted.has(s.id) && sessionVisible(s, list.current, archived))
-  if (stray.length > 0) {
-    groups.push(buildGroup(
-      UNGROUPED_KEY,
-      undefined,
-      undefined,
-      undefined,
-      '',
-      ungroupedOrder === undefined ? stray : orderedUngrouped(stray, ungroupedOrder),
-      ungroupedOrder === undefined ? 'recency' : 'account',
+      Date.parse(workspace.createdAt), workspace.title, members,
     ))
   }
   return groups
@@ -288,9 +246,8 @@ export function deriveGroups(
   const currentGroup = list.current === undefined
     ? undefined
     : (workspaces.find(w => w.sessionIds.includes(list.current as SessionId))?.workspaceId as string | undefined)
-        ?? UNGROUPED_KEY
   const groups: GroupNode[] = []
-  for (const g of groupByWorkspace(list, workspaces, archived, view.ungroupedOrder)) {
+  for (const g of groupByWorkspace(list, workspaces, archived)) {
     const expanded = expandedGroups.has(g.key)
     groups.push({
       key: g.key,

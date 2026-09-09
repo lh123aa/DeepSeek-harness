@@ -125,10 +125,17 @@ class FakeSessions {
 class FakeWorkspaces implements IWorkspaces {
   readonly list: MutableSource<WorkspaceSnapshot>
   readonly archiveCalls: SessionId[] = []
+  readonly deleteCalls: SessionId[] = []
   onArchive: IWorkspaces['archiveSession'] = async (sessionId) => {
     this.list.update(state => ({
       ...state,
       archivedSessionIds: [...state.archivedSessionIds, sessionId],
+    }))
+  }
+  onDelete: IWorkspaces['deleteSession'] = async (sessionId) => {
+    this.list.update(state => ({
+      ...state,
+      archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
     }))
   }
 
@@ -145,6 +152,11 @@ class FakeWorkspaces implements IWorkspaces {
   archiveSession(sessionId: SessionId): Promise<void> {
     this.archiveCalls.push(sessionId)
     return this.onArchive(sessionId)
+  }
+
+  deleteSession(sessionId: SessionId): Promise<void> {
+    this.deleteCalls.push(sessionId)
+    return this.onDelete(sessionId)
   }
 }
 
@@ -289,26 +301,24 @@ describe('UiWorkspaceService', () => {
     })
   })
 
-  it('opens the recent Workspace after both baselines arrive', async () => {
+  it('does not auto-create or open a conversation on entry with no current session', async () => {
     const b = bench()
     b.sessions.create.mockResolvedValue(sid('initial'))
 
     const stableFirst = workspace('stable-first', [], '2026-01-01T00:00:00.000Z')
     const recent = workspace('recent', [], '2026-01-02T00:00:00.000Z')
     b.workspaces.list.set(workspaceState([stableFirst, recent]))
-    expect(b.sessions.create).not.toHaveBeenCalled()
     b.sessions.list.set(sessionState())
 
-    await vi.waitFor(() => {
-      expect(b.sessions.open).toHaveBeenCalledWith(sid('initial'))
-    })
-    expect(b.sessions.create).toHaveBeenCalledWith({ workspaceId: wid('recent') })
+    await flush()
+    expect(b.sessions.create).not.toHaveBeenCalled()
+    expect(b.sessions.open).not.toHaveBeenCalled()
     expect(b.workspaces.list.getSnapshot().items.map(item => item.workspaceId)).toEqual([
       wid('stable-first'), wid('recent'),
     ])
   })
 
-  it('uses Workspace creation time when members are absent and preserves Host tie order', async () => {
+  it('preserves Host order without auto-creating from a member-less recent workspace', async () => {
     const b = bench()
     b.sessions.create.mockResolvedValue(sid('initial'))
 
@@ -319,71 +329,34 @@ describe('UiWorkspaceService', () => {
     ]))
     b.sessions.list.set(sessionState())
 
-    await vi.waitFor(() => {
-      expect(b.sessions.open).toHaveBeenCalledWith(sid('initial'))
-    })
-    expect(b.sessions.create).toHaveBeenCalledWith({ workspaceId: wid('newest') })
+    await flush()
+    expect(b.sessions.create).not.toHaveBeenCalled()
+    expect(b.sessions.open).not.toHaveBeenCalled()
+    expect(b.workspaces.list.getSnapshot().items.map(item => item.workspaceId)).toEqual([
+      wid('newest'), wid('same-time'), wid('older'),
+    ])
   })
 
-  it('retries failed initial selection and never overwrites a later selection', async () => {
+  it('does not auto-select, retry, or warn when no current session exists on entry', async () => {
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const b = bench()
-    let attempts = 0
-    b.sessions.create.mockImplementation(() => ++attempts === 1
-      ? Promise.reject(new Error('attach exploded'))
-      : Promise.resolve(sid('retry')))
     b.workspaces.list.set(workspaceState([workspace('recent')]))
     b.sessions.list.set(sessionState())
-    await vi.waitFor(() => {
-      expect(warning).toHaveBeenCalledWith('initial workspace selection failed:', expect.any(Error))
-    })
-    b.workspaces.list.update(state => ({ ...state, items: [...state.items] }))
-    await vi.waitFor(() => {
-      expect(b.sessions.open).toHaveBeenCalledWith(sid('retry'))
-    })
-    expect(attempts).toBe(2)
-
-    const changed = bench()
-    const pending = Promise.withResolvers<SessionId>()
-    changed.sessions.create.mockImplementation(() => pending.promise)
-    changed.workspaces.list.set(workspaceState([workspace('recent')]))
-    changed.sessions.list.set(sessionState())
-    await vi.waitFor(() => { expect(changed.sessions.create).toHaveBeenCalledOnce() })
-    changed.sessions.open(sid('manual'))
-    pending.resolve(sid('automatic'))
     await flush()
-    expect(changed.sessions.open).toHaveBeenCalledTimes(1)
-    expect(changed.sessions.open).toHaveBeenCalledWith(sid('manual'))
+    expect(b.sessions.create).not.toHaveBeenCalled()
+    expect(b.sessions.open).not.toHaveBeenCalled()
+    expect(warning).not.toHaveBeenCalled()
   })
 
-  it('stops initial navigation when its Cordis lifetime is disposed', async () => {
+  it('does not auto-create a conversation even before its Cordis lifetime is disposed', async () => {
     const success = bench()
-    const resolved = Promise.withResolvers<SessionId>()
-    success.sessions.create.mockImplementation(() => resolved.promise)
+    success.sessions.create.mockResolvedValue(sid('initial'))
     success.workspaces.list.set(workspaceState([workspace('recent')]))
     success.sessions.list.set(sessionState())
-    await vi.waitFor(() => { expect(success.sessions.create).toHaveBeenCalledOnce() })
-    await success.ctx.fiber.dispose()
-    resolved.resolve(sid('late'))
     await flush()
+    expect(success.sessions.create).not.toHaveBeenCalled()
     expect(success.sessions.open).not.toHaveBeenCalled()
-    success.workspaces.list.set(workspaceState([workspace('ignored')]))
-    expect(success.sessions.create).toHaveBeenCalledOnce()
-
-    const failure = bench()
-    const rejected = Promise.withResolvers<SessionId>()
-    failure.sessions.create.mockImplementation(() => rejected.promise)
-    failure.workspaces.list.set(workspaceState([workspace('recent')]))
-    failure.sessions.list.set(sessionState())
-    await vi.waitFor(() => { expect(failure.sessions.create).toHaveBeenCalledOnce() })
-    const staleReconciles = failure.workspaces.list.listenersSnapshot()
-    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    await failure.ctx.fiber.dispose()
-    rejected.reject(new Error('late failure'))
-    await flush()
-    for (const reconcile of staleReconciles) reconcile()
-    expect(warning).not.toHaveBeenCalled()
-    expect(failure.sessions.create).toHaveBeenCalledOnce()
+    await success.ctx.fiber.dispose()
   })
 
   it('clears a current Session only after it enters the archive baseline', () => {
@@ -420,6 +393,28 @@ describe('UiWorkspaceService', () => {
     b.workspaces.onArchive = () => Promise.reject(new Error('archive rejected'))
     await expect(b.uiWorkspace.archiveSession(idle)).rejects.toThrow('archive rejected')
     expect(b.workspaces.archiveCalls).toEqual([idle, idle])
+  })
+
+  it('forwards delete commands, clears only the deleted current selection, and preserves failures', async () => {
+    const current = summary('current')
+    const idle = summary('idle')
+    const b = bench({
+      sessions: sessionState([current, idle], current.id),
+      workspaces: workspaceState([workspace('one', [current.id, idle.id])]),
+    })
+
+    await b.uiWorkspace.deleteSession(current.id)
+    expect(b.workspaces.deleteCalls).toEqual([current.id])
+    expect(b.sessions.clear).toHaveBeenCalledOnce()
+
+    await b.uiWorkspace.deleteSession(idle.id)
+    expect(b.workspaces.deleteCalls).toEqual([current.id, idle.id])
+    // The deleted session was not current: the selection stays untouched.
+    expect(b.sessions.clear).toHaveBeenCalledOnce()
+
+    b.workspaces.onDelete = () => Promise.reject(new Error('delete rejected'))
+    await expect(b.uiWorkspace.deleteSession(idle.id)).rejects.toThrow('delete rejected')
+    expect(b.workspaces.deleteCalls).toEqual([current.id, idle.id, idle.id])
   })
 
   it('passes directory operations to the Host and preserves structured browse failures', async () => {

@@ -387,6 +387,8 @@
       "@deepseek-ai/dsh-tool-cordis": ["./packages/extensions/tool-cordis/src"],
       "@deepseek-ai/dsh-tool-fs": ["./packages/fs/tool-fs/src"],
       "@deepseek-ai/dsh-tool-fs-search": ["./packages/fs/tool-fs-search/src"],
+      "@deepseek-ai/dsh-tool-pdf": ["./packages/fs/tool-pdf/src"],
+      "@deepseek-ai/dsh-tool-docx": ["./packages/fs/tool-docx/src"],
       "@deepseek-ai/dsh-tool-goal": ["./packages/goal/tool-goal/src"],
       "@deepseek-ai/dsh-tool-jobs": ["./packages/jobs/tool-jobs/src"],
       "@deepseek-ai/dsh-tool-lsp": ["./packages/lsp/tool-lsp/src"],

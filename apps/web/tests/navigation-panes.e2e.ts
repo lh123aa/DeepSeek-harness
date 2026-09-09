@@ -110,8 +110,9 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
         slotErrors.push(message.text())
       }
     })
-    // Arm before navigation so the Session response cannot be missed. The
-    // Workspace stream settles through the user-visible Ungrouped barrier.
+    // Arm before navigation so the Session response cannot be missed. With
+    // adoptSessions every session belongs to a workspace, so the final
+    // user-visible barrier is the first workspace group row rather than
     const sessionBaseline = baselineResponse(page)
     const [, sessionResponse] = await Promise.all([
       page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' }),
@@ -122,8 +123,11 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // The frame mounts before the asynchronous session-list baseline lands.
     // Search must target the settled seeded row, not the startup input that
     // the ready projection replaces (the compact layout dropped group session
-    // counts; the Ungrouped bucket row is the barrier).
-    await page.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
+    // counts; the first workspace group row is the barrier).
+    await expect.poll(
+      () => page.locator('[role="treeitem"][aria-expanded]').count(),
+      { timeout: 30_000 },
+    ).toBeGreaterThanOrEqual(1)
   }, 120_000)
 
   afterEach(async () => {
@@ -178,10 +182,13 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
 
   it.skipIf(MODE === 'record')('finds an unopened seeded session by message content and opens it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-search'))
-    // The API baselines can settle before React commits their projection. The
-    // seeded Ungrouped bucket row is the final user-visible barrier before
-    // editing search (the compact layout dropped group session counts).
-    await page.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
+    // The API baselines can settle before React commits their projection. With
+    // adoptSessions the seeded session lives inside a workspace group row, so
+    // that row is the final user-visible barrier before editing search.
+    await expect.poll(
+      () => page.locator('[role="treeitem"][aria-expanded]').count(),
+      { timeout: 30_000 },
+    ).toBeGreaterThanOrEqual(1)
     // Search is a collapsed header action; expand it so the input is actionable.
     const searchButton = page.getByRole('button', { name: 'Search sessions' })
     if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
@@ -331,7 +338,10 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       observerSessionBaseline,
     ])
     await assertBaselineSucceeded(observerSessionResponse, 'observer session.list')
-    await observer.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
+    await expect.poll(
+      () => observer.locator('[role="treeitem"][aria-expanded]').count(),
+      { timeout: 30_000 },
+    ).toBeGreaterThanOrEqual(1)
     await ensureSeedOpen(observer)
 
     try {

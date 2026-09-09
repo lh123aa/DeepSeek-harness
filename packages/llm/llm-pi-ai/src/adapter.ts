@@ -38,6 +38,7 @@ import type {
   SimpleStreamOptions,
   ThinkingLevel,
 } from '@earendil-works/pi-ai'
+import { randomBytes } from 'node:crypto'
 import {
   attributionHeaders,
   contentHasImage,
@@ -201,11 +202,43 @@ function reasoningInfo(
   }
 }
 
+/**
+ * Generate an OpenCode session ID in the format the OpenCode client uses.
+ * Format: `ses_` + 64 hex characters (crypto.randomBytes(32).toString('hex')).
+ */
+function generateOpenCodeSessionId(): string {
+  return `ses_${randomBytes(32).toString('hex')}`
+}
+
+/**
+ * When the harness runs inside an OpenCode host, the Zen API's free-tier
+ * models require the same client-identification headers the native OpenCode
+ * client sends. Without them the server responds 400 MissingSessionID.
+ *
+ * The detection is env-gated (`OPENCODE=1`) so this is inert outside OpenCode.
+ */
+function openCodeClientHeaders(): Record<string, string> {
+  if (process.env.OPENCODE !== '1') return {}
+  const sessionId = generateOpenCodeSessionId()
+  // The native client reads OPENCODE_CLIENT (default "cli"; valid: "app"|"cli"|"desktop").
+  const clientType = process.env.OPENCODE_CLIENT ?? 'cli'
+  return {
+    'x-opencode-session': sessionId,
+    'x-opencode-request': sessionId,
+    'x-opencode-client': clientType,
+  }
+}
+
 /** Merge deployment headers while removing case-insensitive attribution collisions. */
-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
+function requestHeaders(
+  headers: Readonly<Record<string, string>> | undefined,
+  provider?: string,
+): Record<string, string> {
   const attribution = attributionHeaders()
   const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
   return {
+    // OpenCode Zen free-tier models require client-identification headers.
+    ...(provider === 'opencode' ? openCodeClientHeaders() : {}),
     ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
     ...attribution,
   }
@@ -380,7 +413,7 @@ export class PiAiAdapter extends LlmAdapter {
         signal: watchdog.signal,
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
+        headers: requestHeaders(profile.headers, options.provider),
       })
       const iterator = toStreamChunks(events, model.contextWindow, options.signal)[Symbol.asyncIterator]()
       let exhausted = false

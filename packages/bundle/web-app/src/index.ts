@@ -231,6 +231,33 @@ export const internals: {
  * @param ctx - plugin context carrying the webServer service.
  * @param config - validated {@link Config}.
  */
+/** The display title for the default DSH workspace. */
+const DSH_WORKSPACE_TITLE = 'DSH'
+
+/**
+ * Ensure a workspace exists for the source root with the canonical DSH title.
+ * New sessions default to `process.cwd()` (the source root), so they attach
+ * here automatically; existing sessions without a workspace fall out of the
+ * ungrouped bucket on the next bootstrap run. Returned only for its title/path
+ * so the surface stays decoupled from the registry entity type.
+ */
+async function ensureDshWorkspace(ctx: Context): Promise<{ title: string; path: string } | undefined> {
+  const registry = ctx.get('workspaceRegistry')
+  if (registry === undefined) return undefined
+  const existing = await registry.resolveByPath(SOURCE_ROOT)
+  if (existing !== undefined) {
+    if (existing.title !== DSH_WORKSPACE_TITLE) {
+      await existing.setTitle(DSH_WORKSPACE_TITLE)
+    }
+    return existing
+  }
+  try {
+    return await registry.create(SOURCE_ROOT, DSH_WORKSPACE_TITLE)
+  } catch {
+    return undefined
+  }
+}
+
 export function apply(ctx: Context, config: Config): void {
   const runtime = resolveLanTrust(ctx.webServer.host, config.trustedHosts)
   // The loopback URL belongs to this host. Under SSH, the operator reaches it
@@ -239,6 +266,17 @@ export function apply(ctx: Context, config: Config): void {
   // Release dependent rows only after bind-dependent trust has been sampled once.
   ctx.provide(WEB_RUNTIME_SERVICE, runtime)
   ctx.plugin(FrontendStatic, { distIndex: internals.resolveDistIndex() })
+  // Ensure the DSH workspace exists before any session is created. The
+  // workspace registry may not be ready yet; the effect defers to it and
+  // keeps nothing reservation-worthy: best-effort one-shot initialization.
+  ctx.effect(() => {
+    void ensureDshWorkspace(ctx).then((workspace) => {
+      if (workspace !== undefined) {
+        ctx.logger.debug(`dsh web: ensuring workspace "${workspace.title}" at ${workspace.path}`)
+      }
+    })
+    return () => {}
+  }, 'web-app:dsh-workspace')
   if (config.surfaceContext) {
     ctx.inject(['systemPrompt'], (promptCtx) => {
       addHarnessSourceSection(promptCtx, SOURCE_ROOT)

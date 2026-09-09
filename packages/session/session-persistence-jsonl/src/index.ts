@@ -366,6 +366,20 @@ class JsonlSessionPersistence extends SessionPersistence {
     return snapshots
   }
 
+  /**
+   * Permanently erase one stored session and its log directory from disk.
+   * Idempotent: a missing or unknown session resolves without error.
+   * @param id - The session to delete.
+   * @returns resolution after the backend has attempted erasure.
+   */
+  override async deleteSession(id: SessionId): Promise<void> {
+    await this.findLog(id).then(async (path) => {
+      if (path === undefined) return
+      const dir = dirname(path)
+      await rm(dir, { recursive: true, force: true })
+    })
+  }
+
   // --- handle-facing storage internals (package-private via the handle class below) ---
 
   /** Resolve and read one stored log, refusing loudly when the artifact is absent. */

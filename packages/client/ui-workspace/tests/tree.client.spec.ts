@@ -6,7 +6,6 @@ import type { ScheduleId, ScheduleRecord } from '@deepseek-ai/dsh-schedule/clien
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   deriveFlat, deriveGroups, deriveSearchResults, workspaceLabel,
-  UNGROUPED_KEY,
 } from '../src/client/tree.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
 
@@ -26,10 +25,7 @@ const workspace = (id: string, sessionIds: string[], title = id): WorkspaceView 
   workspaceId: wid(id), path: `/projects/${id}`, title,
   sessionIds: sessionIds.map(sid), createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 })
-const view = (expandedGroups: readonly string[] = [], ungroupedOrder?: readonly string[]) => ({
-  expandedGroups,
-  ...(ungroupedOrder === undefined ? {} : { ungroupedOrder }),
-})
+const view = (expandedGroups: readonly string[] = []) => ({ expandedGroups })
 const noArchive: readonly SessionId[] = []
 const noAttention: ReadonlyMap<SessionId, SessionPendingInteractionBase> = new Map()
 const archived = (...ids: string[]): readonly SessionId[] => ids.map(sid)
@@ -77,27 +73,17 @@ describe('deriveGroups', () => {
     },
   )
 
-  it('puts only real unaccounted Sessions in the trailing Ungrouped group', () => {
+  it('never renders an Ungrouped bucket for unaccounted Sessions', () => {
     const sessions = list(summary('owned', 1, '/projects/first'), summary('loose', 9, '/other'))
-    const groups = deriveGroups(
-      sessions, [workspace('first', ['owned'])], noArchive, noAttention, view([UNGROUPED_KEY]),
-    )
-    expect(groups.map(group => group.key)).toEqual(['first', UNGROUPED_KEY])
-    expect(groups[1]!.sessions.map(session => session.id)).toEqual([sid('loose')])
+    const groups = deriveGroups(sessions, [workspace('first', ['owned'])], noArchive, noAttention, view(['first']))
+    expect(groups.map(group => group.key)).toEqual(['first'])
+    expect(groups[0]!.sessions.map(session => session.id)).toEqual([sid('owned')])
   })
 
-  it('applies stored Ungrouped order and appends new loose Sessions by recency', () => {
+  it('leaves unaccounted Sessions out of the grouped view when no Workspace owns them', () => {
     const sessions = list(summary('one', 3), summary('two', 2), summary('new', 4))
-    const groups = deriveGroups(
-      sessions,
-      [],
-      noArchive,
-      noAttention,
-      view([UNGROUPED_KEY], ['two', 'stale', 'two']),
-    )
-    expect(groups[0]!.sessions.map(session => session.id)).toEqual([
-      sid('two'), sid('new'), sid('one'),
-    ])
+    const groups = deriveGroups(sessions, [], noArchive, noAttention, view())
+    expect(groups).toEqual([])
   })
 
   it('shows only the current blank session in its Workspace count and tree', () => {
@@ -211,7 +197,7 @@ describe('deriveGroups', () => {
     ).items[0]).toMatchObject({ id: parent.id, runningSubagentCount: 2 })
   })
 
-  it('ignores fork lineage and sorts every ungrouped session as a top-level row', () => {
+  it('ignores fork lineage and sorts every session as a top-level flat row', () => {
     const parent = summary('parent', 1)
     const oldChild = { ...summary('old-child', 10), parentId: parent.id }
     const newChild = { ...summary('new-child', 20), parentId: parent.id }
@@ -221,25 +207,16 @@ describe('deriveGroups', () => {
     const orphan = { ...summary('orphan', 3), parentId: sid('missing') }
     const cycleA = { ...summary('cycle-a', 4), parentId: sid('cycle-b') }
     const cycleB = { ...summary('cycle-b', 5), parentId: sid('cycle-a') }
-    const groups = deriveGroups(
-      list(parent, oldChild, newChild, tieB, tieA, self, orphan, cycleA, cycleB),
-      [],
-      noArchive,
-      noAttention,
-      { expandedGroups: [UNGROUPED_KEY] },
-    )
+    const rows = deriveFlat(list(parent, oldChild, newChild, tieB, tieA, self, orphan, cycleA, cycleB), noArchive, noAttention)
 
-    expect(groups).toHaveLength(1)
-    expect(groups[0]!.sessions.map(node => node.id)).toEqual([
+    expect(rows.map(node => node.id)).toEqual([
       newChild.id, tieA.id, tieB.id, oldChild.id,
       cycleB.id, cycleA.id, orphan.id, self.id, parent.id,
     ])
 
     // Equal timestamps use ids as a deterministic tiebreak in either input order.
-    expect(deriveGroups(
-      list(summary('tie-a', 1), summary('tie-b', 1)), [], noArchive, noAttention, view([UNGROUPED_KEY]),
-    )[0]!
-      .sessions.map(node => node.id)).toEqual([sid('tie-a'), sid('tie-b')])
+    expect(deriveFlat(list(summary('tie-a', 1), summary('tie-b', 1)), noArchive, noAttention)
+      .map(node => node.id)).toEqual([sid('tie-a'), sid('tie-b')])
   })
 
   it('tolerates Workspace membership arriving before its Session summary', () => {
@@ -261,7 +238,7 @@ describe('deriveGroups', () => {
     const sessions = list(kept, gone, looseGone)
     const groups = deriveGroups(
       sessions, [workspace('first', ['kept', 'gone'])], archived('gone', 'loose-gone'),
-      noAttention, view(['first', UNGROUPED_KEY]),
+      noAttention, view(['first']),
     )
     // The archived member drops from its group AND the archived stray never
     // surfaces an Ungrouped bucket; counts follow the visible rows.
@@ -270,7 +247,7 @@ describe('deriveGroups', () => {
     expect(groups[0]!.sessionCount).toBe(1)
   })
 
-  it('marks selected Workspace and Ungrouped sessions without relying on an Intent', () => {
+  it('marks the selected Workspace session without relying on an Intent', () => {
     const owned = summary('owned', 1)
     const loose = summary('loose', 2)
     const ws = workspace('project', ['owned'])
@@ -278,10 +255,13 @@ describe('deriveGroups', () => {
       { ...list(owned, loose), current: owned.id }, [ws], noArchive, noAttention, view(),
     )
     expect(ownedGroups.find(group => group.key === 'project')!.containsCurrent).toBe(true)
+    // A selected session that no Workspace owns never surfaces an Ungrouped
+    // bucket; the grouped sidebar shows only the Workspace rows.
     const looseGroups = deriveGroups(
       { ...list(owned, loose), current: loose.id }, [ws], noArchive, noAttention, view(),
     )
-    expect(looseGroups.find(group => group.key === UNGROUPED_KEY)!.containsCurrent).toBe(true)
+    expect(looseGroups.map(group => group.key)).toEqual(['project'])
+    expect(looseGroups.find(group => group.key === 'project')!.containsCurrent).toBe(false)
   })
 })
 

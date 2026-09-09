@@ -17,6 +17,8 @@ import type {
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
   WorkspaceDeleteValue,
+  WorkspaceDeleteSessionRequest,
+  WorkspaceDeleteSessionValue,
   WorkspaceInsertBeforeRequest,
   WorkspaceInsertSessionBeforeRequest,
   WorkspaceOrderValue,
@@ -158,6 +160,22 @@ export class WorkspaceCommands {
       throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId }, { cause: error })
     }
     return { archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds] }
+  }
+
+  /**
+   * Permanently delete one known Session: detach from workspaces, remove from
+   * the archive set, and erase its stored log from disk.
+   * @param request - Session identity to delete.
+   * @returns deletion confirmation.
+   */
+  async deleteSession(request: WorkspaceDeleteSessionRequest): Promise<WorkspaceDeleteSessionValue> {
+    try {
+      await this.ctx.workspaceRegistry.deleteSession(request.sessionId)
+    } catch (error) {
+      if (!(error instanceof WorkspaceUnknownSessionError)) throw error
+      throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId }, { cause: error })
+    }
+    return { deleted: true }
   }
 
   private requireWorkspace(workspaceId: WorkspaceId): Workspace {

@@ -195,6 +195,17 @@ export abstract class SessionPersistence extends Service {
    * @returns one snapshot per stored session.
    */
   abstract list(options?: SessionPersistenceListOptions): Promise<readonly SessionPersistenceSnapshot[]>
+
+  /**
+   * Permanently erase one stored session and its log files from disk.
+   * Idempotent: a missing or unknown session resolves without writing.
+   * Backends that cannot erase (e.g. read-only stores) may implement as a no-op.
+   * @param id - The session to delete.
+   * @returns resolution after the backend has attempted erasure.
+   */
+  deleteSession(_id: SessionId): Promise<void> {
+    return Promise.resolve()
+  }
 }
 
 export default SessionPersistence

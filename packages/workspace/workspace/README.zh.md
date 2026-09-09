@@ -1,4 +1,4 @@
----
+﻿---
 description: "面向选择、挂载或排查持久 workspace 记录与会话头校验成员资格的宿主的 Workspace 实体注册表（ctx.workspaceRegistry）说明。"
 kind: "package-reference"
 ---
@@ -47,6 +47,16 @@ kind: "package-reference"
 ```
 
 挂载这些行之后，创建项目会立即出现在列表中并在重启后保留；首次启动还会按会话运行的目录对既有会话分组。如果缺少某个必需依赖，workspace 功能会一直不可用，直到它被挂载。
+
+收养是可选行为，默认关闭：
+
+```yaml
+- name: '@deepseek-ai/dsh-workspace'
+  config:
+    adoptSessions: true   # 默认 false —— 把每个已创建的会话收养进一个工作区
+```
+
+当 `adoptSessions` 关闭（默认）时，会话只在其创建者显式 attach 时才被分组，在工作区流程之外创建的会话保持 Ungrouped。开启时，每个 `session/created` 都会被收养：会话的规范化 cwd 解析到其所属工作区（目录尚未被拥有时创建它），因此自动生成的对话只有在 cwd 完全无法解析到存在的目录时才会保持未分组。
 
 ### 创建与排序项目
 
@@ -158,7 +168,7 @@ ctx.workspaceRegistry.list() // shows the project, newest first
 这些限制说明项目列表何时不合适，或何时需要特别的运维注意。它们是当前包约束，不是任务积压。
 
 - **移除绝不删除数据**——移除项目会保留其文件夹、文件与会话历史；这些会话变成 Ungrouped，而会话删除与文件夹移除是彼此独立且尚未提供的功能（参见[决策记录](../../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.zh.md)）。
-- **只有带记录目录的会话才能加入**——只有记录中带有可解析为项目路径的目录的会话才属于项目；没有目录的会话保持 Ungrouped，来自其他目录的会话无法移入。
+- **只有带记录目录的会话才能加入**——只有记录中带有可解析为项目路径的目录的会话才属于项目；没有目录的会话保持 Ungrouped，来自其他目录的会话无法移入。即使 `adoptSessions` 开启，其 cwd 无法解析到存在的目录的会话也保持 Ungrouped：会话头 cwd 不可变，且会员要求 cwd 等于工作区路径，因此没有回退工作区能在不改写头部或放宽该规则的前提下收养它（参见[Agent Note](../../../.agents/notes/rejected/feature/2026-09-05-no-ungrouped-sessions.zh.md)）。
 - **外部变更延迟可见**——如果另一进程删除或损坏目录，项目只能在下次刷新或重启后反映出来。
 - **归档是单向的**——被隐藏的会话保留其历史与位置，但目前没有取消归档操作；归档集合是持久的显示过滤器。
 - **重新添加目录从空开始**——移除后再次添加同一目录会创建空会话列表的新项目；旧会话不会自动回来。

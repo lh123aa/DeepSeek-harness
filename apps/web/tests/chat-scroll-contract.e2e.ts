@@ -166,14 +166,18 @@ async function launchScrollWorld(options: ScrollWorldOptions): Promise<ScrollWor
     const events: SessionEvent[] = []
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { events.push(event) })
     page = await newEnglishPage(browser, 900)
-    const tripwire = watchConsole(page)
-    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    const livePage = page
+    const tripwire = watchConsole(livePage)
+    await livePage.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    await livePage.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // Session-list bootstrap can replace the controlled search state. Wait
     // for the seeded baseline before openSeed starts the lazy content query
-    // (the compact layout dropped group session counts; the Ungrouped bucket
-    // row is the barrier).
-    await page.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
+    // (the compact layout dropped group session counts; with adoptSessions
+    // the first workspace group row is the barrier).
+    await expect.poll(
+      () => livePage.locator('[role="treeitem"][aria-expanded]').count(),
+      { timeout: 30_000 },
+    ).toBeGreaterThanOrEqual(1)
     return {
       events,
       page,

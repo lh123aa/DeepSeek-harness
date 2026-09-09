@@ -63,6 +63,12 @@ export interface IWorkspaces {
    */
   archiveSession(sessionId: SessionId): Promise<void>
   /**
+   * Permanently delete a Session: detach from workspaces, remove from archive,
+   * and erase its stored log.
+   * @param sessionId - Session to delete.
+   */
+  deleteSession(sessionId: SessionId): Promise<void>
+  /**
    * Move a Session within one Workspace account.
    * @param workspaceId - owning Workspace.
    * @param sessionId - Session to move.
@@ -114,6 +120,11 @@ export class WorkspaceController extends Service implements IWorkspaces {
   async archiveSession(sessionId: SessionId): Promise<void> {
     const result = await this.model.archiveSession(sessionId)
     if (!result.ok) throw commandError('session archive', result.error)
+  }
+
+  async deleteSession(sessionId: SessionId): Promise<void> {
+    const result = await this.model.deleteSession(sessionId)
+    if (!result.ok) throw commandError('session delete', result.error)
   }
 
   async insertSessionBefore(

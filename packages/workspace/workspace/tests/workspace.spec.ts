@@ -35,6 +35,7 @@ interface HarnessOptions {
   liveSessions?: SessionHeader[]
   sessionStore?: boolean
   backend?: StorageBackend
+  adoptSessions?: boolean
 }
 
 /** Boot the real storage/domain/registry composition over controllable header-only peers. */
@@ -52,7 +53,8 @@ async function harness(options: HarnessOptions = {}) {
     listed.map(header => ({ header, revision: SessionPersistenceRevision(`rev-${header.id}`) })))
   const open = vi.fn(() => { throw new Error('event bodies must not be opened') })
   const stat = vi.fn(() => { throw new Error('per-session stat must not be needed') })
-  ctx.provide('sessionPersistence', { list, open, stat } as never)
+  const deleteSession = vi.fn(async () => undefined)
+  ctx.provide('sessionPersistence', { list, open, stat, deleteSession } as never)
 
   if (options.sessionStore === true) {
     await ctx.plugin(SessionStore)
@@ -66,7 +68,8 @@ async function harness(options: HarnessOptions = {}) {
 
   const changes: DomainChanged[] = []
   ctx.on('domain/changed', (change) => { changes.push(change) })
-  const fiber = await ctx.plugin(WorkspaceRegistry)
+  const registryConfig = options.adoptSessions === undefined ? {} : { adoptSessions: options.adoptSessions }
+  const fiber = await ctx.plugin(WorkspaceRegistry, registryConfig)
   const initChanges = [...changes]
   changes.length = 0
   return {
@@ -79,6 +82,7 @@ async function harness(options: HarnessOptions = {}) {
     list,
     open,
     stat,
+    deleteSession,
     setSessions: (headers: SessionHeader[]) => { listed = headers },
   }
 }
@@ -944,5 +948,91 @@ describe('registry-global session archive', () => {
     )
     const upgraded = await harness({ pool: legacy })
     expect(upgraded.registry.archivedSessionIds).toEqual([])
+  })
+})
+
+describe('WorkspaceRegistry session deletion', () => {
+  it('deletes one session durably: detach, unarchive, and erase', async () => {
+    const dir = await makeDir('delete-home')
+    const result = await harness({ sessions: [header('gone', dir, 100), header('kept', dir, 200)] })
+    const workspace = result.registry.list()[0]!
+    await result.registry.archiveSession(SessionId('gone'))
+
+    await result.registry.deleteSession(SessionId('gone'))
+
+    expect(workspace.sessionIds).toEqual(['kept'])
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(result.deleteSession).toHaveBeenCalledWith(SessionId('gone'))
+    expect(storedState(result.pool).archivedSessionIds).toEqual([])
+  })
+
+  it('deletes an unaccounted live session and rejects unknown ids naming the delete verb', async () => {
+    const dir = await makeDir('delete-strays')
+    const result = await harness({ liveSessions: [header('live-only', dir, 200)] })
+
+    await result.registry.deleteSession(SessionId('live-only'))
+    expect(result.deleteSession).toHaveBeenCalledWith(SessionId('live-only'))
+
+    await expect(result.registry.deleteSession(SessionId('ghost')))
+      .rejects.toThrow(/cannot delete session 'ghost'/)
+  })
+
+  it('propagates a persistence-listing failure instead of reporting an unknown session', async () => {
+    const result = await harness({ sessions: [] })
+    result.list.mockRejectedValueOnce(new Error('persistence backend down'))
+    await expect(result.registry.deleteSession(SessionId('unlisted')))
+      .rejects.toThrow(/persistence backend down/)
+    expect(result.deleteSession).not.toHaveBeenCalled()
+  })
+})
+
+describe('WorkspaceRegistry adoption (opt-in adoptSessions)', () => {
+  it('with adoption off, a created session with a cwd stays ungrouped', async () => {
+    const dir = await makeDir('adopt-off')
+    const result = await harness({ sessionStore: true })
+    result.ctx.sessions.create(SessionId('off'), { meta: { cwd: dir } })
+    expect(result.registry.list()).toEqual([])
+  })
+
+  it('adopts a created session into a new workspace when its directory is unowned', async () => {
+    const dir = await makeDir('adopt-new')
+    const result = await harness({ sessionStore: true, adoptSessions: true })
+    const session = result.ctx.sessions.create(SessionId('new'), { meta: { cwd: dir } })
+    await vi.waitFor(() => {
+      const workspace = result.registry.list().find(candidate => candidate.path === dir)
+      expect(workspace).toBeDefined()
+      expect(workspace?.sessionIds).toContain(session.id)
+    })
+  })
+
+  it('adopts a created session into the workspace already owning its directory', async () => {
+    const dir = await makeDir('adopt-owned')
+    const result = await harness({ sessionStore: true, adoptSessions: true })
+    const workspace = await result.registry.create(dir)
+    const session = result.ctx.sessions.create(SessionId('owned'), { meta: { cwd: dir } })
+    await vi.waitFor(() => {
+      expect(workspace.sessionIds).toContain(session.id)
+    })
+    expect(result.registry.list()).toHaveLength(1)
+  })
+
+  it('reconciles a previously ungrouped stored session at startup when adoption is on', async () => {
+    const dir = await makeDir('reconcile')
+    const pool = storedPool([], { initialized: true, workspaceIds: [] })
+    const result = await harness({ pool, sessions: [header('late', dir, 10)], adoptSessions: true })
+    await vi.waitFor(() => {
+      const workspace = result.registry.list().find(candidate => candidate.path === dir)
+      expect(workspace).toBeDefined()
+      expect(workspace?.sessionIds).toContain('late')
+    })
+  })
+
+  it('does not create a workspace for a session with no groupable cwd', async () => {
+    const result = await harness({ sessionStore: true, adoptSessions: true })
+    result.ctx.sessions.create(SessionId('no-cwd'), {})
+    await vi.waitFor(() => {
+      // The adoption pass is async; allow it to settle and log the last resort.
+      expect(result.registry.list()).toEqual([])
+    })
   })
 })

@@ -358,7 +358,9 @@ describe.skipIf(MODE === 'record')('web e2e: file and session references through
 
   it('renders the durable direct-message then recall order', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-reference-order'))
-    const group = page.getByRole('treeitem', { name: /Ungrouped/ })
+    // With adoptSessions sessions live inside a workspace group; expand the
+    // first group and locate the target session by its title.
+    const group = page.locator('[role="treeitem"][aria-expanded]').first()
     await group.waitFor({ timeout: 15_000 })
     if (await group.getAttribute('aria-expanded') !== 'true') await group.click()
     const target = page.getByRole('treeitem', { name: /Reference order target/ })

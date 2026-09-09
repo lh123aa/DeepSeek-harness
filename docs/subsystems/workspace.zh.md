@@ -121,6 +121,10 @@ interface Workspace {
 
 会话的 cwd 在创建时由创建者赋予，而不是由本注册表赋予——API 网关从所选工作区的 `path` 解析新会话的 cwd（回退到显式或默认 cwd），先创建会话使 cwd 落入其不可变的 [`SessionHeader`](persistence.zh.md#sessionheader--metadata-beside-the-log)，再调用 `attachSession`，后者会把已存储的 header cwd 与工作区路径重新校验一遍。首次成功启动时，注册表仅凭已持久化的 header（`id`、`cwd`、`createdAt`——绝不读事件正文）引导历史：把规范 cwd 有效的会话按目录分组为工作区，最新的排在最前；「已初始化」标记最后写入，因此被中断的引导可以安全续跑。引导只发生这一次：没有 cwd 的历史遗留会话保持 Ungrouped，此后创建的会话只能通过 `attachSession` 加入工作区。
 
+可选的 `adoptSessions` 配置（默认 `false`）开启收养。启用时，注册表订阅 `session/created`，并对每个会话解析其规范 cwd 到所属工作区（目录尚未被拥有时创建之）并 attach，因此工作区流程之外创建的会话不会落下为 Ungrouped；同样的仅头部遍历会在启动时对既有会话再跑一遍。没有可归组 cwd 的会话仍保持 Ungrouped，因为 attach 要求不可变的 header cwd 等于工作区路径（[收养 Agent Note](../../.agents/notes/rejected/feature/2026-09-05-no-ungrouped-sessions.zh.md)）。
+
+会话可通过 `ctx.workspaceRegistry.deleteSession` / `workspace.deleteSession` RPC 永久删除：注册表将它从每个工作区账户分离、从归档集合移除并擦除已存日志，未知 id 被拒绝。Web 行菜单在调用前以确认对话框承载这一破坏性动作；归档仍是非破坏性的隐藏路径（[删除会话 Agent Note](../../.agents/notes/implemented/feature/2026-09-06-web-session-delete.zh.md)）。
+
 ## 消费方
 
 [`dsh-workspace-controller`](../../packages/api/workspace-controller) 经 `ctx.workspaceRegistry` 向 GUI 客户端提供工作区 CRUD，[`dsh-session-controller`](../../packages/api/session-controller) 执行上文「先建会话再 attach」的流程。[dsh-agent-instructions](../../packages/context/agent-instructions) 尽管名字如此，却**不是**消费方：它在 agent 自己的 cwd 下发现 AGENTS.md 风格的指令文件，从不触碰 `ctx.workspaceRegistry`——两者共用的这个词指的是用户的工作目录，而非本注册表的实体。

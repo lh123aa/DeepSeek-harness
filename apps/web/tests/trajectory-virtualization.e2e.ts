@@ -198,9 +198,12 @@ describe('web e2e: Trajectory virtualization over tail-paged history', () => {
     tripwire = watchConsole(page)
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
-    // The compact layout dropped group session counts; the seeded baseline is
-    // the Ungrouped bucket once cold summaries load.
-    await page.getByText('Ungrouped', { exact: true }).waitFor({ timeout: 30_000 })
+    // The compact layout dropped group session counts; with adoptSessions the
+    // seeded baseline is the first workspace group row once cold summaries load.
+    await expect.poll(
+      () => page.locator('[role="treeitem"][aria-expanded]').count(),
+      { timeout: 30_000 },
+    ).toBeGreaterThanOrEqual(1)
   }, 120_000)
 
   afterAll(async () => {

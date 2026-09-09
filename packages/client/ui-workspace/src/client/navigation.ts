@@ -30,6 +30,11 @@ export interface UiWorkspace {
    */
   archiveSession(sessionId: SessionId): Promise<void>
   /**
+   * Permanently delete a Session and clear it when it is the current selection.
+   * @param sessionId - Session to delete.
+   */
+  deleteSession(sessionId: SessionId): Promise<void>
+  /**
    * Open the Host-native directory picker.
    * @returns the selected directory, or null when cancelled.
    */
@@ -136,6 +141,13 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     await this.workspaces.archiveSession(sessionId)
   }
 
+  async deleteSession(sessionId: SessionId): Promise<void> {
+    await this.workspaces.deleteSession(sessionId)
+    // Clear current selection when the deleted session was active.
+    const current = this.sessions.list.getSnapshot().current
+    if (current === sessionId) this.sessions.clear()
+  }
+
   async pickDirectory(): Promise<string | null> {
     const result = await this.directoryPicker.pick()
     if (!result.ok) throw new Error(`directory picker failed: ${result.error.message}`)
@@ -155,39 +167,22 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   }
 
   private watchNavigation(): () => void {
-    let initial: 'waiting' | 'connecting' | 'done' = 'waiting'
+    let initial: 'waiting' | 'done' = 'waiting'
     let disposed = false
     const reconcile = (): void => {
       if (disposed) return
       if (this.clearArchivedCurrent()) return
       if (initial !== 'waiting') return
-      const workspace = this.workspaces.list.getSnapshot()
+      const workspaces = this.workspaces.list.getSnapshot()
       const sessions = this.sessions.list.getSnapshot()
-      if (workspace.phase !== 'ready' || sessions.phase !== 'ready') return
-      if (sessions.current !== undefined) {
-        initial = 'done'
-        return
-      }
-      const target = recentWorkspace(workspace.items, sessions.byId)
-      if (target === undefined) {
-        initial = 'done'
-        return
-      }
-      initial = 'connecting'
-      void this.connectWorkspace(target).then(
-        (sessionId) => {
-          if (disposed) return
-          if (this.sessions.list.getSnapshot().current === undefined) {
-            this.sessions.open(sessionId)
-          }
-          initial = 'done'
-        },
-        (reason: unknown) => {
-          if (disposed) return
-          initial = 'waiting'
-          console.warn('initial workspace selection failed:', reason)
-        },
-      )
+      if (workspaces.phase !== 'ready' || sessions.phase !== 'ready') return
+      // Restore a real Session selection only. When none exists, do NOT create
+      // or open a conversation: the left menu never auto-generates one. A
+      // conversation is created only when the user explicitly starts a New
+      // Session (`startSession`) or sends the first message, so the entry
+      // state is the empty New Session hero and the session is materialized on
+      // first send.
+      initial = 'done'
     }
     const disposeWorkspaces = this.workspaces.list.subscribe(reconcile)
     const disposeSessions = this.sessions.list.subscribe(reconcile)

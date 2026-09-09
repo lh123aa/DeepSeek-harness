@@ -328,9 +328,11 @@ describe('web e2e: agent-preset selection', () => {
 
   it('labels a resumed session with the preset it was created under', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-agent-preset-header'))
-    // The seeded session's cwd is the scaffold root rather than the connected
-    // workspace, so it lists under Ungrouped; the group collapses by default.
-    await page.getByRole('treeitem', { name: /^Ungrouped/ }).click()
+    // With adoptSessions the session belongs to a workspace group; expand it
+    // and click the last row (the seeded session).
+    const group = page.locator('[role="treeitem"][aria-expanded]').first()
+    await group.waitFor({ timeout: 10_000 })
+    if (await group.getAttribute('aria-expanded') !== 'true') await group.click()
     await page.locator('[role="treeitem"]').last().click()
     await page.getByText('Seeded turn.').waitFor({ timeout: 15_000 })
 

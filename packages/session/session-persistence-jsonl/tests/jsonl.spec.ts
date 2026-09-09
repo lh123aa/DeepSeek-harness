@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { SessionLogOffset, SessionSeq, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
-import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { SessionPersistenceNotFoundError, type SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import JsonlSessionPersistence from '../src/index.ts'
 import {
   encodeSegment, eventLines, logPath, projectDir, projectKey, scanLog, sessionDir, SessionLogScanner, toHeaderLine,
 } from '../src/format.ts'
@@ -1715,5 +1715,29 @@ describe('JsonlSessionPersistence: edge cases', () => {
     }, surfaceOp: 'append' }] as unknown as SessionEvent[]
     await writeLog(ctx.sessionPersistence, m, events)
     expect((await readAll(ctx.sessionPersistence, m.id)).events).toEqual(events)
+  })
+})
+
+describe('session deletion', () => {
+  let root: string
+  let ctx: Context
+  beforeEach(async () => {
+    root = await freshRoot()
+    ctx = new Context()
+    await ctx.plugin(JsonlSessionPersistence, { root, compression: 'none' })
+  })
+  afterEach(async () => { await ctx.fiber.dispose() })
+
+  it('erases the stored log directory and resolves for unknown ids', async () => {
+    const m = meta('erase-me', '/work')
+    await writeLog(ctx.sessionPersistence, m, oneTurnLog())
+    expect(await ctx.sessionPersistence.stat(m.id)).toBeDefined()
+
+    await ctx.sessionPersistence.deleteSession(m.id)
+    expect(await ctx.sessionPersistence.list()).toEqual([])
+    await expect(ctx.sessionPersistence.open(m.id, 'read')).rejects.toThrow(SessionPersistenceNotFoundError)
+
+    // Idempotent: a session that never existed resolves without writing.
+    await expect(ctx.sessionPersistence.deleteSession(SessionId('never-was'))).resolves.toBeUndefined()
   })
 })

@@ -109,6 +109,16 @@ export interface WorkspaceArchiveValue {
   readonly archivedSessionIds: readonly SessionId[]
 }
 
+/** Session requested for permanent deletion. */
+export interface WorkspaceDeleteSessionRequest {
+  readonly sessionId: SessionId
+}
+
+/** Receipt after one Session is permanently deleted. */
+export interface WorkspaceDeleteSessionValue {
+  readonly deleted: true
+}
+
 /** Complete reconnect baseline for Workspace browser state. */
 export interface WorkspaceBaseline {
   readonly items: readonly WorkspaceView[]

@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
@@ -12,6 +13,7 @@ import {
   SessionFormatUnsupportedError,
   SessionHandleClosedError,
   SessionOwnershipLostError,
+  SessionPersistence,
   SessionPersistenceCorruptionError,
   SessionPersistenceNotFoundError,
   SessionPersistenceRevision,
@@ -27,6 +29,16 @@ import type { SessionLocation } from '../src/index.ts'
 import { meta } from './contract.ts'
 
 const LOCATION: SessionLocation = { kind: 'jsonl', path: '/store/session.jsonl' }
+
+/** A backend that cannot erase: only the shared default deleteSession exists. */
+class NoErasePersistence extends SessionPersistence {
+  constructor() { super(new Context()) }
+  async create(): Promise<never> { throw new Error('unused') }
+  async open(): Promise<never> { throw new Error('unused') }
+  async flush(): Promise<void> {}
+  async stat(): Promise<undefined> { return undefined }
+  async list(): Promise<readonly never[]> { return [] }
+}
 
 /** A stored user/message event with a well-formed identified message. */
 function userMessage(seq: number): SessionEvent {
@@ -317,5 +329,11 @@ describe('error vocabulary', () => {
 describe('SessionPersistenceRevision', () => {
   it('brands the backend token without changing its runtime value', () => {
     expect(SessionPersistenceRevision('rev:1')).toBe('rev:1')
+  })
+})
+
+describe('SessionPersistence base deleteSession', () => {
+  it('defaults to a no-op for backends that cannot erase', async () => {
+    await expect(new NoErasePersistence().deleteSession(SessionId('x'))).resolves.toBeUndefined()
   })
 })

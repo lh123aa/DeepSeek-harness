@@ -271,6 +271,14 @@
       config:
         sampleOverCapGlobResults: false
 
+    # PDF text extraction via pdfjs-dist; bounded by max_pages and max_bytes.
+    - id: tool-pdf
+      name: '@deepseek-ai/dsh-tool-pdf'
+
+    # Word DOCX text extraction via mammoth; bounded by max_bytes.
+    - id: tool-docx
+      name: '@deepseek-ai/dsh-tool-docx'
+
     - id: agent-instructions
       name: '@deepseek-ai/dsh-agent-instructions'
       config:
