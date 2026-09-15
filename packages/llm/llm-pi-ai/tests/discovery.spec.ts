@@ -517,9 +517,8 @@ const RECORDED_LISTINGS = [
     file: 'deepseek-2026-09-02.json',
     api: 'openai-completions',
     models: [
-      { id: 'deepseek-v4-flash', name: 'deepseek-v4-flash' },
+      { id: 'deepseek-flash', name: 'deepseek-flash' },
       { id: 'deepseek-v4-pro', name: 'deepseek-v4-pro' },
-      { id: 'deepseek-v4-flash-vision-exp', name: 'deepseek-v4-flash-vision-exp' },
     ],
   },
   {

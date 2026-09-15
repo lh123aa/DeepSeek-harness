@@ -24,7 +24,7 @@ function message(
   seq: number,
   tokenUsage?: TokenUsage,
   provider = 'deepseek',
-  model = 'deepseek-chat',
+  model = 'deepseek-flash',
   step = 1,
   streamTokenUsage = tokenUsage,
 ) {
@@ -77,7 +77,7 @@ describe('deriveTurnTokenUsage', () => {
       cacheReadTokens: 50,
       cacheWriteTokens: 0,
       reasoningTokens: 8,
-      routes: [{ provider: 'deepseek', model: 'deepseek-chat' }],
+      routes: [{ provider: 'deepseek', model: 'deepseek-flash' }],
     })
   })
 
@@ -221,7 +221,7 @@ describe('deriveTurnTokenUsage', () => {
       totalTokens: 340,
       cacheReadTokens: 100,
       routes: [
-        { provider: 'deepseek', model: 'deepseek-chat' },
+        { provider: 'deepseek', model: 'deepseek-flash' },
         { provider: 'openai', model: 'gpt-5' },
       ],
     })
@@ -241,7 +241,7 @@ describe('deriveTurnTokenUsage', () => {
         step: 2,
         message: {
           id: 'message-6', role: 'assistant', content: [],
-          source: { kind: 'model', provider: 'deepseek', model: 'deepseek-chat' },
+          source: { kind: 'model', provider: 'deepseek', model: 'deepseek-flash' },
         },
         usage: attempt,
       }),

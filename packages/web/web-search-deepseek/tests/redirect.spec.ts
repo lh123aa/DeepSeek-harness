@@ -55,7 +55,7 @@ describe('DeepSeekSearchProvider redirect policy', () => {
     const provider = searchProvider({
       apiKey: TEST_API_KEY,
       baseURL: `${redirectOrigin}/${status}`,
-      model: 'deepseek-chat',
+      model: 'deepseek-flash',
       apiVersion: '2023-06-01',
       maxTokens: 32,
       maxUses: 1,

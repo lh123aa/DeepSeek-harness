@@ -8,11 +8,24 @@ Set-Location 'D:\DeepSeekHNS'
 # ---- isolated user-data for the app window ----
 $appDataDir = Join-Path $env:LOCALAPPDATA 'DeepSeek-Harness-App'
 
-# Kill any stale dsh/web node processes on common ports
-Get-Process node -ErrorAction SilentlyContinue |
-  Where-Object { $_.Id -ne $PID } |
-  Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
+# Gracefully stop any stale dsh/web node processes.
+# -Force (SIGKILL) is avoided: it prevents session persistence from flushing
+# buffered writes, which can corrupt the session log on restart (seq gap).
+$stale = Get-Process node -ErrorAction SilentlyContinue |
+  Where-Object { $_.Id -ne $PID }
+if ($stale) {
+  $stale | Stop-Process -ErrorAction SilentlyContinue   # graceful SIGTERM
+  $deadline = [DateTime]::Now.AddSeconds(5)
+  while ($stale -and [DateTime]::Now -lt $deadline) {
+    Start-Sleep -Milliseconds 200
+    $stale = $stale | Where-Object { !$_.HasExited }
+  }
+  # Force-kill any stragglers that ignored SIGTERM
+  if ($stale) {
+    $stale | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+  }
+}
 
 # Find a free port
 $port = 9500

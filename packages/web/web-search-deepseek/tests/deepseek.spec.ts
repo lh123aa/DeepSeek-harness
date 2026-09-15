@@ -35,7 +35,7 @@ async function rejectedWebError(operation: Promise<unknown>): Promise<WebError> 
 const options = {
   apiKey: 'ds-key',
   baseURL: 'https://api.deepseek.test/anthropic/v1',
-  model: 'deepseek-chat',
+  model: 'deepseek-flash',
   apiVersion: '2023-06-01',
   maxTokens: 4096,
   maxUses: 5,
@@ -191,7 +191,7 @@ describe('DeepSeekSearchProvider request mapping', () => {
     expect(headers['authorization']).toBe('Bearer ds-key')
     expect(headers['anthropic-version']).toBe('2023-06-01')
     const body = {
-      model: 'deepseek-chat',
+      model: 'deepseek-flash',
       max_tokens: 4096,
       messages: [{ role: 'user', content: [{ type: 'text', text: 'Perform a web search for the query: hello' }] }],
       tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],

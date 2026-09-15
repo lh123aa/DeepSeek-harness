@@ -18,7 +18,16 @@ foreach ($port in @(1056, 9029)) {
     $cmd = if ($proc) { $proc.CommandLine } else { '(gone)' }
     if ($cmd -match 'bin\.ts web') {
       Log "stopping dsh web PID $($conn.OwningProcess) on port $port ($cmd)"
-      Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
+      Stop-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue  # graceful first
+      $waitDeadline = [DateTime]::Now.AddSeconds(5)
+      while ((Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue) -and [DateTime]::Now -lt $waitDeadline) {
+        Start-Sleep -Milliseconds 200
+      }
+      # Force only if still alive after graceful window
+      if (Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue) {
+        Log "PID $($conn.OwningProcess) did not exit gracefully; force-killing"
+        Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
+      }
     } else {
       Log "port $port owned by non-dsh process $($conn.OwningProcess); leaving it"
     }
@@ -31,7 +40,11 @@ Get-Process node -ErrorAction SilentlyContinue | ForEach-Object {
   $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)" -ErrorAction SilentlyContinue
   if ($p -and $p.CommandLine -match 'dsh-launcher\.cjs') {
     Log "stopping launcher wrapper PID $($_.Id)"
-    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    Stop-Process -Id $_.Id -ErrorAction SilentlyContinue  # graceful first
+    Start-Sleep -Seconds 2
+    if (Get-Process -Id $_.Id -ErrorAction SilentlyContinue) {
+      Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+    }
   }
 }
 Start-Sleep -Seconds 3
