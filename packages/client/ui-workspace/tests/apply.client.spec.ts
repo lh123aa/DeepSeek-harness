@@ -18,11 +18,10 @@ async function bench() {
     title: 'new', sessionIds: [], createdAt: '0', updatedAt: '0',
   }))
   const rename = vi.fn(async () => ({}))
-  const insertSessionBefore = vi.fn(async () => ({}))
-  const archiveSession = vi.fn(async () => undefined)
-  const deleteSession = vi.fn(async () => undefined)
   const open = vi.fn()
   const clear = vi.fn()
+  const selectPanel = vi.fn()
+  ctx.provide('layout', { selectPanel, beginNavigation: () => new AbortController().signal })
   const search = vi.fn(async () => ({
     ok: true as const,
     value: { items: [{ sessionId: 'session' as never, snippet: 'match' }], hasMore: false },
@@ -42,9 +41,8 @@ async function bench() {
     rename,
     delete: vi.fn(async () => undefined),
     insertBefore: vi.fn(async () => undefined),
-    archiveSession,
-    deleteSession,
-    insertSessionBefore,
+    archiveSession: vi.fn(async () => undefined),
+    insertSessionBefore: vi.fn(async () => ({})),
   } as never)
   ctx.provide('sessions', {
     list: {
@@ -74,8 +72,7 @@ async function bench() {
   ctx.provide('locale', locale)
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, create, rename,
-    insertSessionBefore, open, clear, search, renameSession, binding, fork, pickDirectory,
-    archiveSession, deleteSession,
+    open, clear, selectPanel, search, renameSession, binding, fork, pickDirectory,
   }
 }
 
@@ -94,7 +91,7 @@ describe('ui-workspace apply', () => {
 
   it('declares the services it drives', () => {
     expect(inject).toEqual([
-      'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker',
+      'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout',
     ])
   })
 
@@ -147,12 +144,6 @@ describe('ui-workspace apply', () => {
     expect(b.fork).toHaveBeenCalledWith({ sessionId: 'session', increaseTitle: true })
     await browser.renameWorkspace('ws' as never, 'renamed')
     expect(b.rename).toHaveBeenCalledWith('ws', 'renamed')
-    await browser.archiveSession('session' as never)
-    expect(b.archiveSession).toHaveBeenCalledWith('session')
-    await browser.deleteSession('session' as never)
-    expect(b.deleteSession).toHaveBeenCalledWith('session')
-    await browser.insertSessionBefore('ws' as never, 's1' as never, 's2' as never)
-    expect(b.insertSessionBefore).toHaveBeenCalledWith('ws', 's1', 's2')
     await browser.createWorkspace({ path: '/tmp/browser-project' })
     expect(b.create).toHaveBeenCalledWith({ path: '/tmp/browser-project' })
 

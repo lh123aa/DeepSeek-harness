@@ -7,9 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
-import { basename } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
-import z from '@deepseek-ai/schemastery'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type { DomainGlobal, KvTable } from '@deepseek-ai/dsh-storage-domain'
@@ -17,7 +15,7 @@ import { WorkspaceEntity } from './entity.ts'
 import type { WorkspaceEntityHost } from './entity.ts'
 
 export { WorkspaceMoveInvalidError } from './entity.ts'
-import { realpathNormalize } from './paths.ts'
+import { defaultWorkspaceTitle, realpathNormalize } from './paths.ts'
 import { workspaceDomainSpec } from './spec.ts'
 import type { WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
 import type { Workspace, WorkspaceId as WorkspaceIdBrand } from './types.ts'
@@ -40,17 +38,15 @@ export function WorkspaceId(id: string): WorkspaceId {
 }
 
 /**
- * An archive/delete request named a session neither live nor in session
+ * An archiveSession request named a session neither live nor in session
  * persistence — a definite miss only; storage faults propagate as themselves.
  */
 export class WorkspaceUnknownSessionError extends Error {
   /**
    * @param sessionId - The unknown session id.
-   * @param action - the operation that named the unknown session; picked
-   *   verbatim into the message so the failure names the caller's intent.
    */
-  constructor(readonly sessionId: SessionId, action: 'archive' | 'delete' = 'archive') {
-    super(`cannot ${action} session '${sessionId}': live sessions and session persistence hold no such session`)
+  constructor(readonly sessionId: SessionId) {
+    super(`cannot archive session '${sessionId}': live sessions and session persistence hold no such session`)
     this.name = 'WorkspaceUnknownSessionError'
   }
 }
@@ -66,18 +62,6 @@ export class WorkspaceOrderInvalidError extends Error {
   }
 }
 
-
-/** Workspace registry composition config. */
-export interface Config {
-  /**
-   * Adopt every created session into a workspace when it carries a groupable
-   * canonical cwd. Off by default. When on, a workspace is resolved for the
-   * session's canonical cwd, and one is created when the directory is not yet
-   * owned; a session with no groupable cwd stays Ungrouped as the documented
-   * last resort rather than fabricating membership.
-   */
-  readonly adoptSessions?: boolean
-}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -107,11 +91,6 @@ const compareHeaders = (left: SessionHeader, right: SessionHeader): number =>
 export class WorkspaceRegistry extends Service {
   static inject = ['storageDomain', 'sessionPersistence']
 
-  /** Composition config: when `adoptSessions` is set, created sessions are re-homed into workspaces. */
-  static Config: z<Config> = z.object({
-    adoptSessions: z.boolean().default(false),
-  })
-
   private table?: KvTable<WorkspaceId, WorkspaceRecord>
   private global?: DomainGlobal<WorkspaceDomainState>
   private state?: WorkspaceDomainState
@@ -120,8 +99,6 @@ export class WorkspaceRegistry extends Service {
   private readonly sessionPaths = new Map<SessionId, string>()
   private readonly invalidSessionPaths = new Map<SessionId, string>()
   private operationTail: Promise<void> = Promise.resolve()
-  private readonly adoptSessions: boolean
-  private readonly adopting = new Set<SessionId>()
 
   private readonly host: WorkspaceEntityHost = {
     table: () => this.requireTable(),
@@ -133,13 +110,8 @@ export class WorkspaceRegistry extends Service {
     },
   }
 
-  constructor(ctx: Context, config: Config = {}) {
+  constructor(ctx: Context) {
     super(ctx, 'workspaceRegistry')
-    this.adoptSessions = config.adoptSessions ?? false
-    ctx.on('session/created', (session) => {
-      if (!this.adoptSessions) return
-      void this.adoptSession(session.id)
-    })
   }
 
   /** Open the domain, finish bootstrap when required, and rebuild the ordered cache. */
@@ -163,28 +135,23 @@ export class WorkspaceRegistry extends Service {
     await this.indexLiveSessions()
     this.validateStoredState(this.requireState())
     this.rebuildEntities()
-    if (this.adoptSessions) {
-      await this.reconcileAdoption()
-      this.validateStoredState(this.requireState())
-      this.rebuildEntities()
-    }
     this.reportFilteredCandidates()
   }
 
   /**
-   * Create or reuse a workspace for an existing directory. The path is
-   * canonicalized through `fs.realpath`; a nonexistent path rejects with the
-   * original error and a non-directory rejects. Repeated calls for the same
-   * canonical path return the existing entity without changing its title.
+   * Create or reuse a workspace for an existing directory. The fully qualified
+   * path is canonicalized through `fs.realpath`; a relative, nonexistent, or
+   * non-directory path rejects. Repeated calls for the same canonical path
+   * return the existing entity without changing its title.
    * A newly created workspace is prepended to the durable registry order.
    * Different canonical paths may share a display title.
-   * @param path - Existing directory to own, in any path spelling.
+   * @param path - Existing directory to own, in a fully qualified path spelling.
    * @param title - Display title used only when a new record is created.
    * @returns the existing or newly durable workspace.
    */
   // TODO: `title` lost its last production caller when the gateway's
   // create-by-name branch was deleted
-  // (.agents/notes/implemented/simplification/2026-07-31-one-route-to-add-a-workspace.md);
+  // (.agents/notes/archived/simplification/2026-07-31-one-route-to-add-a-workspace.md);
   // drop the parameter with its @param clause and the `create(path, title?)`
   // lines in this package's README pair.
   async create(path: string, title?: string): Promise<Workspace> {
@@ -287,32 +254,25 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
-   * Delete one session permanently: detach from all workspaces, remove from the
-   * archive set, and erase its stored log from disk. The storage backend erases
-   * files; the registry commits detachment atomically.
-   * @param sessionId - The session to delete.
+   * Unarchive one session durably by dropping it from the registry-global
+   * archive set; the accounting slot was never touched, so the session
+   * returns to its recorded position. Unarchiving runs no session-existence
+   * check because removing an id cannot introduce an unknown one, so an
+   * entry whose session is gone still resolves. An id that is not archived
+   * resolves without writing.
+   * @param sessionId - The session to unarchive.
    * @returns resolution after durability.
-   * @throws {WorkspaceUnknownSessionError} when the session is neither live nor stored.
    */
-  async deleteSession(sessionId: SessionId): Promise<void> {
+  unarchiveSession(sessionId: SessionId): Promise<void> {
     return this.enqueueOperation(async () => {
-      if (!(await this.sessionKnown(sessionId))) {
-        throw new WorkspaceUnknownSessionError(sessionId, 'delete')
-      }
-      // Detach from every workspace that accounts it.
-      for (const entity of this.entities.values()) {
-        await entity.detachSession(sessionId)
-      }
-      // Remove from archive set when present.
+      // The chain slot serializes against every other registry write, so this
+      // check-then-write pair cannot interleave with a concurrent archive.
       const state = this.requireState()
-      if (state.archivedSessionIds.includes(sessionId)) {
-        await this.setState({
-          ...state,
-          archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
-        })
-      }
-      // Erase the stored log via the persistence backend.
-      await this.ctx.sessionPersistence.deleteSession(sessionId)
+      if (!state.archivedSessionIds.includes(sessionId)) return
+      await this.setState({
+        ...state,
+        archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+      })
     })
   }
 
@@ -333,7 +293,7 @@ export class WorkspaceRegistry extends Service {
    * Resolve by canonical directory path without creating or mutating a
    * workspace. A missing path rejects during `realpath`; an existing unowned
    * directory returns `undefined`.
-   * @param path - Existing directory path in any spelling.
+   * @param path - Existing directory path in a fully qualified spelling.
    * @returns the workspace owning the canonical path, when one exists.
    */
   async resolveByPath(path: string): Promise<Workspace | undefined> {
@@ -344,81 +304,12 @@ export class WorkspaceRegistry extends Service {
     return undefined
   }
 
-  /**
-   * Adopt one created session into the workspace that owns its canonical cwd,
-   * creating that workspace when the directory is not yet owned. A session with
-   * no groupable cwd is left Ungrouped and logged, never fabricated. Idempotent:
-   * an already-accounted session resolves without an additional write.
-   * @param sessionId - the session to re-home into a workspace.
-   */
-  private async adoptSession(sessionId: SessionId): Promise<void> {
-    if (this.adopting.has(sessionId)) return
-    this.adopting.add(sessionId)
-    try {
-      const workspace = await this.workspaceForSessionHome(sessionId)
-      if (workspace === undefined) {
-        this.ctx.logger.warn(
-          `workspace registry left session '${sessionId}' Ungrouped: its cwd is not groupable into a workspace`,
-        )
-        return
-      }
-      await workspace.attachSession(sessionId)
-    } catch (error) {
-      this.ctx.logger.warn(
-        `workspace registry could not adopt session '${sessionId}': ${String(error)}`,
-      )
-    } finally {
-      this.adopting.delete(sessionId)
-    }
-  }
-
-  /**
-   * Resolve the workspace a session belongs to: the owner of its canonical cwd,
-   * or a newly created workspace for that directory. Returns `undefined` when
-   * the session carries no groupable cwd.
-   * @param sessionId - the adopted session.
-   * @returns the target workspace, or `undefined` when ungroupable.
-   */
-  private async workspaceForSessionHome(sessionId: SessionId): Promise<Workspace | undefined> {
-    const header = await this.readSessionHeader(sessionId)
-    if (header.cwd === undefined) return undefined
-    let canonical: string
-    try {
-      canonical = await realpathNormalize(header.cwd)
-      if (!(await stat(canonical)).isDirectory()) return undefined
-    } catch {
-      return undefined
-    }
-    const existing = await this.resolveByPath(canonical)
-    if (existing !== undefined) return existing
-    return await this.create(canonical)
-  }
-
-  /**
-   * Idempotent startup pass that re-homes every known session when adoption is
-   * enabled: stored and live sessions that already appear in a matching
-   * workspace account are skipped, and the rest follow the creation adoption
-   * order. Header-only; never reads event bodies.
-   */
-  private async reconcileAdoption(): Promise<void> {
-    const headers = await this.listStoredHeaders()
-    const live = this.ctx.get('sessions')?.list() ?? []
-    const archived = new Set(this.requireState().archivedSessionIds)
-    const ids = new Set<SessionId>()
-    for (const header of headers) ids.add(header.id)
-    for (const session of live) ids.add(session.id)
-    for (const id of ids) {
-      if (archived.has(id)) continue
-      await this.adoptSession(id)
-    }
-  }
-
   private async createCanonical(canonical: string, title?: string): Promise<WorkspaceEntity> {
     for (const entity of this.entities.values()) {
       if (entity.path === canonical) return entity
     }
 
-    const workspaceName = title ?? basename(canonical)
+    const workspaceName = title ?? defaultWorkspaceTitle(canonical)
     const table = this.requireTable()
     const state = this.requireState()
     const id = WorkspaceId(randomUUID())
@@ -590,7 +481,7 @@ export class WorkspaceRegistry extends Service {
         const createdAt = new Date(group.newestAt).toISOString()
         const record: WorkspaceRecord = {
           path: group.path,
-          title: basename(group.path),
+          title: defaultWorkspaceTitle(group.path),
           sessionIds,
           createdAt,
           updatedAt: createdAt,

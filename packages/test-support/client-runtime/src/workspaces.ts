@@ -144,13 +144,13 @@ export class TestWorkspaces implements IWorkspaces {
   }
 
   /**
-   * Delete a session (recorded). The default mirrors the production face's
+   * Unarchive a session (recorded). The default mirrors the production face's
    * observable effect: the id leaves the list state's archive set.
-   * @param sessionId - session to delete.
+   * @param sessionId - session to unarchive.
    */
-  async deleteSession(sessionId: SessionId): Promise<void> {
-    this.calls.push({ method: 'deleteSession', args: [sessionId] })
-    const stub = this.stubs.get('deleteSession')
+  async unarchiveSession(sessionId: SessionId): Promise<void> {
+    this.calls.push({ method: 'unarchiveSession', args: [sessionId] })
+    const stub = this.stubs.get('unarchiveSession')
     if (stub !== undefined) {
       await (stub(sessionId) as Promise<void>)
       return

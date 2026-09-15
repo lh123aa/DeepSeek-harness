@@ -134,17 +134,6 @@ export type WorkspaceBrowserInjected = {
    * session clears the selection into the New Session view state.
    */
   archiveSession: (sessionId: SessionId) => Promise<void>
-  /**
-   * Permanently delete a Session: detach from workspaces, remove from archive,
-   * and erase its stored log. Deleting the current session clears the selection.
-   */
-  deleteSession: (sessionId: SessionId) => Promise<void>
-  /**
-   * Reorder a session inside its Workspace account (DOM-insertBefore
-   * semantics: omitted anchor appends to the end). The view refreshes from
-   * the Host response/changed frame; failures leave the order unchanged.
-   */
-  insertSessionBefore: (workspaceId: WorkspaceId, sessionId: SessionId, beforeSessionId?: SessionId) => Promise<void>
   /** Adopt a picked host directory as a real Workspace before targeting a Session. */
   createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
 }

@@ -17,12 +17,11 @@ import type {
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
   WorkspaceDeleteValue,
-  WorkspaceDeleteSessionRequest,
-  WorkspaceDeleteSessionValue,
   WorkspaceInsertBeforeRequest,
   WorkspaceInsertSessionBeforeRequest,
   WorkspaceOrderValue,
   WorkspaceRenameRequest,
+  WorkspaceUnarchiveSessionRequest,
   WorkspaceValue,
 } from './types.ts'
 
@@ -163,19 +162,15 @@ export class WorkspaceCommands {
   }
 
   /**
-   * Permanently delete one known Session: detach from workspaces, remove from
-   * the archive set, and erase its stored log from disk.
-   * @param request - Session identity to delete.
-   * @returns deletion confirmation.
+   * Drop one Session from the registry-global archive set. An id that is not
+   * archived is not an error: the call is idempotent, so a lost race with
+   * another surface resolves as a no-op.
+   * @param request - Session identity to unarchive.
+   * @returns the complete resulting archive set.
    */
-  async deleteSession(request: WorkspaceDeleteSessionRequest): Promise<WorkspaceDeleteSessionValue> {
-    try {
-      await this.ctx.workspaceRegistry.deleteSession(request.sessionId)
-    } catch (error) {
-      if (!(error instanceof WorkspaceUnknownSessionError)) throw error
-      throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId }, { cause: error })
-    }
-    return { deleted: true }
+  async unarchiveSession(request: WorkspaceUnarchiveSessionRequest): Promise<WorkspaceArchiveValue> {
+    await this.ctx.workspaceRegistry.unarchiveSession(request.sessionId)
+    return { archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds] }
   }
 
   private requireWorkspace(workspaceId: WorkspaceId): Workspace {
