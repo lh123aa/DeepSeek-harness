@@ -210,6 +210,13 @@ Requires: `agentDefaultModel` · `agents` · `attachments` · `fileUploads` · `
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /**
+   * Largest stored Session artifact, in bytes, whose complete log the list may
+   * read to recover metadata a predecessor projection-cache record cannot
+   * supply. Zero refuses every such read. Defaults to
+   * {@link DEFAULT_COLD_LIST_METADATA_MAX_BYTES}.
+   */
+  readonly listColdReadMaxBytes?: number
 }
 ```
 

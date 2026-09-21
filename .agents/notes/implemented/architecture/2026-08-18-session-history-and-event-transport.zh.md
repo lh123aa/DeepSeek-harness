@@ -166,7 +166,7 @@ Session Remote 方法传递 `SessionId` 或 `SessionAddress`，不靠参数类�
 
 `SessionQuery.observeSession()` 选择 attached Session，或从读取方自己的 prepared cache——经由持久化读句柄填充——提供冷 Session。该 cache 共享并发冷读取，并在所有 observation lease 释放前固定同一条目。一次 observation 要么计算所有已注册 projection，要么完全不计算；调用方可以只公开其中一部分，但不会建立只计算部分 projection 的中间状态。
 
-`session.list` 不会无界扫描冷日志。它优先使用缓存的 projection hint，仅在独立存储 artifact 不超过配置的小日志字节上限时，才可能完整观察日志以判断不确定的 blank 状态。hint 缺失或不可读时，列表仍保留该行，并把 metadata 视为未知。
+`session.list` 不会无界扫描冷日志。它优先使用缓存的 projection hint；当这些 hint 无法描述一个 Session 时，它只会在 `listColdReadMaxBytes`（`SessionController` 的配置字段，默认 64 KiB，取 `0` 表示拒绝）之内完整观察一份独立存储 artifact，用于判定不确定的 blank 状态与最后一次人类输入时间。`session-query` 的 `SessionRecord.sizeBytes` 携带后端报告的存档大小，作为该读取的上界；后端不报告大小、artifact 超过上限、以及 artifact 不可读这三种情况都会保留该行，并把 metadata 视为未知。
 
 `model/selection` 是 required-on-read 的持久 event，因为它改变下一次请求使用的 model route。对应 projection 同时记录最近一次 request selection 与之后的 pending selection；prompt assembly 在提交匹配的 `request/header` 时消费 pending value。
 

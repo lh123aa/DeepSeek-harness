@@ -7,7 +7,7 @@ import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
-import { SessionQueryError, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
+import { SessionQueryError, type SessionRecord, type SessionSearchCursor } from '@deepseek-ai/dsh-session-query'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { z } from 'zod'
 import {
@@ -22,6 +22,15 @@ import type {
 const SEARCH_PROVIDER_CALL_LIMIT = 100
 const SESSION_SEARCH_QUERY_MAX_CHARS = 500
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
+
+/**
+ * Seed Session-list metadata, shared by the registered projection and the
+ * bounded cold-log recovery so both fold the same starting state.
+ */
+const INITIAL_SESSION_LIST_METADATA: SessionListMetadata = { blank: true, lastPromptAt: null }
+
+/** Default largest stored artifact a list read may fully observe for metadata. */
+export const DEFAULT_COLD_LIST_METADATA_MAX_BYTES = 65_536
 
 const sessionListMetadataSchema: z.ZodType<SessionListMetadata> = z.object({
   blank: z.boolean(),
@@ -75,12 +84,19 @@ export function truncateUnicodeCodePoints(value: string, maximum: number): strin
 
 /** Owns list projection registration, bounded cold summaries, and authorized search. */
 export class ApiSessionList {
-  /** @param ctx - Host context carrying Session, query, persistence, and projection services. */
-  constructor(private readonly ctx: Context) {
+  /**
+   * @param ctx - Host context carrying Session, query, persistence, and projection services.
+   * @param coldMetadataMaxBytes - largest stored artifact `session.list` may read to recover
+   *   uncertain metadata; deployments choose it, and zero refuses every such read.
+   */
+  constructor(
+    private readonly ctx: Context,
+    private readonly coldMetadataMaxBytes: number,
+  ) {
     ctx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
       key: 'sessionListMetadata',
       stateSchema: sessionListMetadataSchema,
-      init: () => ({ blank: true, lastPromptAt: null }),
+      init: () => INITIAL_SESSION_LIST_METADATA,
       apply: applySessionListMetadata,
       wire: { viewSchema: sessionListMetadataSchema, view: state => state },
       stateVersion: 1,
@@ -128,7 +144,7 @@ export class ApiSessionList {
     const records = await this.ctx.sessionQuery.listSessions(signal)
     signal?.throwIfAborted()
     const items: SessionSummary[] = []
-    const cold: SessionHeader[] = []
+    const cold: SessionRecord[] = []
     for (const record of records) {
       const live = this.ctx.sessions.get(record.header.id)
       if (live !== undefined) {
@@ -136,16 +152,21 @@ export class ApiSessionList {
         continue
       }
       if (record.header.cwd === undefined) continue
-      cold.push(record.header)
+      cold.push(record)
     }
-    for (const header of cold) items.push(this.summarizeCold(header))
+    for (const record of cold) {
+      signal?.throwIfAborted()
+      items.push(await this.summarizeCold(record))
+    }
     items.sort((left, right) => right.updatedAt - left.updatedAt)
     return items
   }
 
-  private summarizeCold(header: SessionHeader): SessionSummary {
+  private async summarizeCold(record: SessionRecord): Promise<SessionSummary> {
+    const header = record.header
     const projections = this.projectionsFor(header, undefined)
     const metadata = projections?.values.sessionListMetadata
+      ?? await this.coldListMetadata(header, record.sizeBytes)
     return {
       sessionId: header.id,
       updatedAt: updatedAt(header, metadata),
@@ -154,6 +175,39 @@ export class ApiSessionList {
       blank: metadata?.blank ?? false,
       ...listFields(header),
       ...(projections === undefined ? {} : { projections }),
+    }
+  }
+
+  /**
+   * Recover uncertain list metadata from one bounded cold-log read.
+   *
+   * A predecessor projection-cache record exposes only its title, so a Session
+   * whose log still sits in an older format generation reports no metadata and
+   * would otherwise stay visible as a nameless row. The complete log is read
+   * only for an individually stored artifact within the configured byte bound;
+   * a larger, unreadable, or lifecycle-mismatched log keeps its row visible
+   * with unknown metadata.
+   * @param header - listed Session header, the lifecycle witness for the read.
+   * @param sizeBytes - stored artifact size; absent when the backend cannot report one.
+   * @returns recovered metadata, or undefined when the read is refused or fails.
+   */
+  private async coldListMetadata(
+    header: SessionHeader,
+    sizeBytes: number | undefined,
+  ): Promise<SessionListMetadata | undefined> {
+    if (sizeBytes === undefined || sizeBytes > this.coldMetadataMaxBytes) return undefined
+    try {
+      // The listing supplied this header as the lifecycle witness for the read,
+      // so the corpus has already proved the loaded header identifies it.
+      const snapshot = await this.ctx.sessionQuery.readSession(header.id)
+      let state = INITIAL_SESSION_LIST_METADATA
+      for (const event of snapshot.events) state = applySessionListMetadata(state, event)
+      return state
+    } catch (error: unknown) {
+      this.ctx.logger.warn(
+        `api-session.list: cold metadata read for "${header.id}" failed; serving the row without it: ${String(error)}`,
+      )
+      return undefined
     }
   }
 

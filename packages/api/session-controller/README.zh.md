@@ -52,6 +52,7 @@ Session 对象还承载本地提交回显：`session.beginSubmission` 在调用�
 | 字段 | 默认值 | 含义 |
 |---|---:|---|
 | `nativeOpen` | 平台探测 | 是否能把 Session 工作区路径交给原生桌面打开器 |
+| `listColdReadMaxBytes` | 65536 | `session.list` 为恢复前代 projection 缓存记录无法提供的元数据而完整读取的 Session 存档上限（字节）；`0` 表示一律拒绝此类读取 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-api-session-controller)是所有受支持字段及其 JSDoc 的完整来源。
 

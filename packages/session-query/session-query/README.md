@@ -31,7 +31,7 @@ Use `ctx.sessionQuery` from application code when you need to read or search ses
 
 | Operation | What you get |
 |---|---|
-| `listSessions()` | Every logical session, newest first, with `live` and `persisted` availability flags |
+| `listSessions()` | Every logical session, newest first, with `live` and `persisted` availability flags and, for a persisted Session, the backend-reported artifact `sizeBytes` |
 | `readSession(id)` | The complete replay-validated raw event log, without making the session live |
 | `filterSessions(filters)` | Sessions matching ANDed metadata and availability predicates |
 | `filterEvents(id, filters)` | Semantic event documents matching metadata and literal-text predicates |
@@ -42,7 +42,7 @@ Use `ctx.sessionQuery` from application code when you need to read or search ses
 | `traceEvent(request)` | One event's positional replacements and cited source-event relationships |
 | `searchSessions(request)` / `searchEvents(request)` | Full-text search pages, implemented by the mounted backend |
 
-Body-free records expose only `SessionHeader.isSeeded`. Reads that return event bodies (`readSession`, `readSurface`, `readEvent`) and retained `SessionObservation` values also carry the exact `inheritedEventCount`, so callers can distinguish inherited and owned events without inferring a cut from the log.
+Body-free records expose only `SessionHeader.isSeeded`. Reads that return event bodies (`readSession`, `readSurface`, `readEvent`) and retained `SessionObservation` values also carry the exact `inheritedEventCount`, so callers can distinguish inherited and owned events without inferring a cut from the log. A listed record carries `sizeBytes` in addition, and only when the mounted backend can report an artifact size cheaply; callers use it to bound an optional cold read rather than to describe the Session.
 
 ### Filters
 

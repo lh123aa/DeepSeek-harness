@@ -89,6 +89,8 @@ export interface TestSessionRemoteDefaults {
   readonly defaultModelSelection: () => AgentModelSelection
   readonly cwd: string
   readonly nativeOpen?: boolean
+  /** List cold-read bound; absent leaves the production default in place. */
+  readonly listColdReadMaxBytes?: number
   readonly saveDefaultModelSelection?: (selection: AgentModelSelection) => void | Promise<void>
   readonly openPath?: (path: string, signal: AbortSignal) => Promise<void>
   readonly revealPath?: (path: string, signal: AbortSignal) => Promise<void>
@@ -114,6 +116,8 @@ interface TestSessionInspection {
 
 type LegacyTestPersistence = Record<string, unknown> & {
   readonly list?: (signal?: AbortSignal) => Promise<readonly SessionHeader[]>
+  /** Artifact byte size every listed header reports; absent models a backend that cannot report one. */
+  readonly sizeBytes?: number
   readonly inspect?: (
     sessionId: SessionId,
     signal?: AbortSignal,
@@ -172,6 +176,7 @@ export function testSessionPersistence(
       (await listHeaders(options?.signal)).map(header => ({
         header,
         revision: SessionPersistenceRevision(`test:${header.id}:list`),
+        ...persistence.sizeBytes === undefined ? {} : { sizeBytes: persistence.sizeBytes },
       })),
   }
   if (persistence.stat === undefined) {
@@ -282,6 +287,9 @@ function installControllers(
       ctx,
       {
         ...defaults.nativeOpen === undefined ? {} : { nativeOpen: defaults.nativeOpen },
+        ...defaults.listColdReadMaxBytes === undefined
+          ? {}
+          : { listColdReadMaxBytes: defaults.listColdReadMaxBytes },
       },
       {
         ...defaults.openPath === undefined ? {} : { openPath: defaults.openPath },

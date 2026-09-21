@@ -31,6 +31,12 @@ export interface SessionRecord {
   live: boolean
   /** Whether the active persistence backend currently lists the id, including a created-but-unmaterialized session it already observes. */
   persisted: boolean
+  /**
+   * Stored artifact byte size for a persisted Session, absent for a live one
+   * and for a backend that cannot report it. Consumers use it to bound
+   * optional cold-log reads.
+   */
+  sizeBytes?: number
 }
 
 /** One atomic live-preferred observation of a session's current model surface. */

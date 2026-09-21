@@ -52,6 +52,7 @@ Fork copies history through the selected completed turn, including its `turn/end
 | Field | Default | Meaning |
 |---|---:|---|
 | `nativeOpen` | platform-detected | Whether Session workspace paths can be handed to a native desktop opener |
+| `listColdReadMaxBytes` | 65536 | Largest stored Session artifact, in bytes, whose complete log `session.list` may read to recover metadata a predecessor projection-cache record cannot supply; `0` refuses every such read |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-api-session-controller) is the exhaustive source for accepted fields and their JSDoc.
 

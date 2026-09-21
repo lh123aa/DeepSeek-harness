@@ -76,7 +76,7 @@ function conversationEvents(): SessionEvent[] {
 }
 
 describe('sessions.list cold merge', () => {
-  it('uses a predecessor title hint with zero cold stat or body reads', async () => {
+  it('uses a predecessor title hint without reading an artifact whose size the backend does not report', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const metas = [header('legacy-title', 100), header('uncached', 200)]
@@ -124,6 +124,40 @@ describe('sessions.list cold merge', () => {
     expect(stat).not.toHaveBeenCalled()
     expect(inspect).not.toHaveBeenCalled()
     expect(observe).not.toHaveBeenCalled()
+  })
+
+  it('recovers abandoned blankness behind a predecessor title from a small artifact', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const metas = [header('legacy-abandoned', 100)]
+    const inspect = vi.fn(async () => ({ meta: metas[0]!, events: [] }))
+    providePersistence(ctx, {
+      list: () => Promise.resolve(metas),
+      inspect,
+      // A backend that reports artifact size admits the bounded cold read.
+      sizeBytes: 2_048,
+    })
+    ctx.provide('sessionProjectionCache', {
+      cachedSnapshot: () => undefined,
+      cachedPredecessorTitle: () => ({ asOfSeq: -1, values: { title: null } }),
+    } as never)
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/tmp',
+    })
+
+    const response = await remote.list(request({}))
+
+    if (!response.ok) throw new Error('list failed')
+    expect(response.value.items).toEqual([
+      expect.objectContaining({
+        sessionId: sid('legacy-abandoned'),
+        blank: true,
+        updatedAt: 100,
+        projections: { asOfSeq: -1, values: { title: null } },
+      }),
+    ])
+    expect(inspect).toHaveBeenCalledTimes(1)
   })
 
   it('serves cold rows from current cached projections without body access', async () => {

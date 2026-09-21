@@ -18,7 +18,7 @@ import {
   type SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
 import { createSessionTestRemote, testSessionPersistence } from './test-remote.ts'
-import { ApiSessionList } from '../src/list.ts'
+import { ApiSessionList, DEFAULT_COLD_LIST_METADATA_MAX_BYTES } from '../src/list.ts'
 
 const sid = (value: string): SessionId => value as SessionId
 const defaults = { defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/tmp' }
@@ -96,7 +96,7 @@ function installSearchQuery(
 describe('session.search', () => {
   it('rejects search when the query service is absent', async () => {
     const ctx = await baseContext()
-    const list = new ApiSessionList(ctx)
+    const list = new ApiSessionList(ctx, DEFAULT_COLD_LIST_METADATA_MAX_BYTES)
 
     await expect(list.search('query', new AbortController().signal)).rejects.toMatchObject({
       code: 'gateway/internal',

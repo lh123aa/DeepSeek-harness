@@ -166,7 +166,7 @@ Reading titles, lists, and projections does not require an Agent. An observation
 
 `SessionQuery.observeSession()` chooses an attached Session or serves a cold one from the reader's own prepared cache, filled through a persistence read handle. The cache shares concurrent cold reads and pins an entry until every observation lease is released. An observation computes either all registered projections or none; callers may expose a subset, but no caller creates a partial projection state.
 
-`session.list` never performs an unbounded cold-log scan. It uses cached projection hints when available and may fully observe only an individually stored artifact within the configured small-log byte limit to distinguish an abandoned blank Session. Missing or unreadable hints keep the row visible with unknown metadata.
+`session.list` never performs an unbounded cold-log scan. It uses cached projection hints when available and, when those hints cannot describe a Session, fully observes one individually stored artifact within `listColdReadMaxBytes` (a `SessionController` config field, 64 KiB by default, `0` to refuse) to resolve uncertain blankness and the last human prompt time. `session-query`'s `SessionRecord.sizeBytes` carries the backend-reported artifact size that bounds the read; a backend that reports none, a larger artifact, and an unreadable one all keep the row visible with unknown metadata.
 
 `model/selection` is a required-on-read durable event because it changes the model route used by the next request. Its projection records both the last request selection and a later pending selection; prompt assembly consumes the pending value when the matching `request/header` is committed.
 

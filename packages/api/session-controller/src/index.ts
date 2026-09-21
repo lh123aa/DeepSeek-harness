@@ -19,7 +19,7 @@ import { SessionCommandController } from './commands.ts'
 import { SessionControlController } from './control.ts'
 import { SessionHistoryController } from './history.ts'
 import { SessionFileReferences } from './file-references.ts'
-import { ApiSessionList } from './list.ts'
+import { ApiSessionList, DEFAULT_COLD_LIST_METADATA_MAX_BYTES } from './list.ts'
 import { buildModelCatalog } from './catalog.ts'
 import { installModelSelectionProjection } from './model-selection-projection.ts'
 import { SessionSkillCatalog } from './skill-catalog.ts'
@@ -71,6 +71,13 @@ declare module '@deepseek-ai/cordis' {
 export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /**
+   * Largest stored Session artifact, in bytes, whose complete log the list may
+   * read to recover metadata a predecessor projection-cache record cannot
+   * supply. Zero refuses every such read. Defaults to
+   * {@link DEFAULT_COLD_LIST_METADATA_MAX_BYTES}.
+   */
+  readonly listColdReadMaxBytes?: number
 }
 
 /** Host integrations replaceable by direct unit tests. */
@@ -100,6 +107,7 @@ export class SessionController extends TypertRemoteService {
 
   static Config: z<Config> = z.object({
     nativeOpen: z.boolean(),
+    listColdReadMaxBytes: z.natural(),
   })
 
   private readonly agents: ApiSessionAgentController
@@ -134,7 +142,10 @@ export class SessionController extends TypertRemoteService {
       await Promise.allSettled([...this.promotions])
     }, 'session-controller.promotions')
     this.history = new SessionHistoryController(ctx, (observation) => { this.promote(observation) })
-    this.listState = new ApiSessionList(ctx)
+    this.listState = new ApiSessionList(
+      ctx,
+      config.listColdReadMaxBytes ?? DEFAULT_COLD_LIST_METADATA_MAX_BYTES,
+    )
     this.openPath = internals.openPath ?? openNativePath
     this.revealPath = internals.revealPath ?? revealNativePath
     this.canOpenPath = internals.canOpenPath
