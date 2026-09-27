@@ -28,6 +28,7 @@ export {
   SessionFormatUnsupportedError,
   SessionHandleClosedError,
   SessionOwnershipLostError,
+  SessionPersistenceArtifactMissingError,
   SessionPersistenceCorruptionError,
   SessionPersistenceNotFoundError,
   SessionReadOnlyError,

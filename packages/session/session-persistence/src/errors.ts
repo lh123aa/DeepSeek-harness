@@ -49,6 +49,25 @@ export class SessionReadOnlyError extends Error {
 }
 
 /**
+ * A write handle's committed artifact is gone: its directory or its log file
+ * was removed by an actor outside this process while the handle still owned the
+ * session for writing. The handle never recreates the artifact — a fresh file
+ * would hold event rows without the header line that identifies the stored
+ * session, and the next read would refuse it as header-less — so the mutation
+ * is refused and the artifact stays exactly what the external removal left.
+ */
+export class SessionPersistenceArtifactMissingError extends Error {
+  /**
+   * @param sessionId - the session whose artifact vanished.
+   * @param path - the backend artifact path that no longer exists.
+   */
+  constructor(readonly sessionId: SessionId, readonly path: string) {
+    super(`session "${sessionId}": durable log "${path}" is gone while this process owns the session for writing; the harness never recreates a removed log, so the stored transcript cannot be appended to`)
+    this.name = 'SessionPersistenceArtifactMissingError'
+  }
+}
+
+/**
  * A write handle's ownership is permanently gone: its lease expired, a renewal
  * failed, or the durable ownership record no longer names this handle. The
  * handle never re-acquires ownership — close it and reopen for write.

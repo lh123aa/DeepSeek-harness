@@ -50,7 +50,7 @@ await ctx.sessionPersistence.flush()                           // backend-wide d
 
 ### 所有权与可见性
 
-`create` 与 `open(id, 'write')` 取得进程内单写者所有权：在持有者活跃期间第二次以写模式打开会以 `SessionAlreadyOwnedError` 拒绝，对已占用 id 执行 `create` 会以 `SessionAlreadyExistsError` 拒绝，在 `read` 句柄上执行修改会以 `SessionReadOnlyError` 拒绝——一种句柄类型，运行时拒绝。对已关闭句柄的任何操作会以 `SessionHandleClosedError` 拒绝，`SessionOwnershipLostError` 标记写所有权已永久丢失的写句柄（关闭并重新打开）。已创建的会话自 `create` 完成之刻起即可在本进程内被观察到，而后端可以把物理实体化推迟到第一次 `append` 或 `flush`；其他进程只能看到已实体化的会话，一个在崩溃前从未实体化的会话等于从未存在。
+`create` 与 `open(id, 'write')` 取得进程内单写者所有权：在持有者活跃期间第二次以写模式打开会以 `SessionAlreadyOwnedError` 拒绝，对已占用 id 执行 `create` 会以 `SessionAlreadyExistsError` 拒绝，在 `read` 句柄上执行修改会以 `SessionReadOnlyError` 拒绝——一种句柄类型，运行时拒绝。对已关闭句柄的任何操作会以 `SessionHandleClosedError` 拒绝，`SessionOwnershipLostError` 标记写所有权已永久丢失的写句柄（关闭并重新打开）。`SessionPersistenceArtifactMissingError` 拒绝其已提交工件被本进程之外的行为者删除的修改；句柄绝不重建该工件，因为替代日志会携带缺少标识所存储会话的 header 的事件行。已创建的会话自 `create` 完成之刻起即可在本进程内被观察到，而后端可以把物理实体化推迟到第一次 `append` 或 `flush`；其他进程只能看到已实体化的会话，一个在崩溃前从未实体化的会话等于从未存在。
 
 ### 实时写路径与关闭排空
 
