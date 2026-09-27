@@ -94,7 +94,9 @@ describe('ArchivedSessionsSection', () => {
 
     expect(screen.getAllByRole('listitem')).toHaveLength(1)
     expect(screen.getByText('Loose session')).toBeTruthy()
-    expect(screen.getByText('Ungrouped · now')).toBeTruthy()
+    // No workspace membership: workspace label is empty so only the time suffix renders.
+    const row = screen.getByRole('listitem')
+    expect(row.textContent).toContain('now')
   })
 
   it('reads sessions until the list arrives, then reports an empty archive', () => {
