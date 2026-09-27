@@ -33,11 +33,13 @@ export interface UiWorkspace {
    */
   forkSession(sessionId: SessionId): Promise<void>
   /**
-   * Resolve the reusable or newly created blank Session for a Workspace.
+   * Resolve the reusable blank Session for a Workspace. No new session is
+   * auto-created; returns undefined when no blank session exists.
    * @param workspaceId - target Workspace.
-   * @returns a Session already addressable through the Session Controller.
+   * @returns a Session already addressable through the Session Controller,
+   * or undefined when no blank session is available.
    */
-  connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId>
+  connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId | undefined>
   /**
    * Start a New Session flow and navigate to its Session.
    * @param workspaceId - explicit target; absent inherits the current or most recent Workspace.
@@ -48,6 +50,12 @@ export interface UiWorkspace {
    * @param sessionId - Session to archive.
    */
   archiveSession(sessionId: SessionId): Promise<void>
+  /**
+   * Delete a Session durably, retaining its log on disk, and clear it when it
+   * is the current selection.
+   * @param sessionId - Session to delete.
+   */
+  deleteSession(sessionId: SessionId): Promise<void>
   /**
    * Unarchive a Session, restoring it to its recorded Workspace position.
    * @param sessionId - Session to unarchive.
@@ -112,7 +120,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     ctx.effect(() => this.watchNavigation(), 'ui-workspace: Workspace navigation policy')
   }
 
-  async connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId> {
+  async connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId | undefined> {
     const workspace = this.workspaces.list.getSnapshot().items
       .find(item => item.workspaceId === workspaceId)
     if (workspace === undefined) {
@@ -130,10 +138,8 @@ class UiWorkspaceService extends Service implements UiWorkspace {
         && !archived.includes(summary.id)) return summary.id
     }
 
-    const attempt = this.sessions.create({ workspaceId })
-      .finally(() => { this.connecting.delete(workspaceId) })
-    this.connecting.set(workspaceId, attempt)
-    return attempt
+    // No auto-creation: only reuse existing blank sessions.
+    return undefined
   }
 
   openSession(sessionId: SessionId): void {
@@ -145,7 +151,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const navigation = AbortSignal.any([this.ctx.layout.beginNavigation(), this.lifetime.signal])
     const isCurrent = (): boolean => !navigation.aborted
     const sessionId = await this.connectWorkspace(workspaceId)
-    if (!isCurrent()) return
+    if (!isCurrent() || sessionId === undefined) return
     beforeOpen?.(sessionId)
     if (isCurrent()) this.openSession(sessionId)
   }
@@ -179,6 +185,10 @@ class UiWorkspaceService extends Service implements UiWorkspace {
 
   async archiveSession(sessionId: SessionId): Promise<void> {
     await this.workspaces.archiveSession(sessionId)
+  }
+
+  async deleteSession(sessionId: SessionId): Promise<void> {
+    await this.workspaces.deleteSession(sessionId)
   }
 
   async unarchiveSession(sessionId: SessionId): Promise<void> {
@@ -225,6 +235,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       void this.connectWorkspace(target).then(
         (sessionId) => {
           if (this.lifetime.signal.aborted) return
+          if (sessionId === undefined) return
           if (this.sessions.list.getSnapshot().current === undefined) {
             this.sessions.open(sessionId)
           }

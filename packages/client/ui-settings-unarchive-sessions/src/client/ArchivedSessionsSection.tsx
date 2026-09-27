@@ -60,7 +60,6 @@ export function ArchivedSessionsSection(props: ArchivedSessionsSectionProps): Re
   const workspaces = useWorkspaces(state => state.items)
   const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
   const [query, setQuery] = useState('')
-  const ungrouped = t('ungrouped')
   const summaries = sessions.byId
 
   // Archive order is oldest first; the page lists the most recently archived
@@ -76,11 +75,11 @@ export function ArchivedSessionsSection(props: ArchivedSessionsSectionProps): Re
       return [{
         id,
         title: summary.displayTitle,
-        workspace: owners.get(id) ?? ungrouped,
+        workspace: owners.get(id) ?? '',
         updatedAt: summary.updatedAt,
       }]
     })
-  }, [archivedSessionIds, workspaces, summaries, ungrouped])
+  }, [archivedSessionIds, workspaces, summaries])
 
   if (sessions.phase !== 'ready') return <p className={css.status}>{t('loading')}</p>
 

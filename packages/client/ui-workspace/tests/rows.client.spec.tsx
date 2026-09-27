@@ -380,11 +380,11 @@ describe('workspace browser rows', () => {
     }
   })
 
-  it('workspace hover card without a directory omits the path and copy action', async () => {
+  it('workspace hover card with a directory shows the path and copy action', async () => {
     vi.useFakeTimers()
     try {
       const group: GroupNode = {
-        key: 'project', workspaceId: wid('project'), cwd: undefined, createdAt: 0, label: 'Project',
+        key: 'project', workspaceId: wid('project'), cwd: '/projects/demo', createdAt: 0, label: 'Project',
         sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
       }
       render(<ProjectRowItem group={group} home="/home/u" onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
@@ -392,7 +392,7 @@ describe('workspace browser rows', () => {
       act(() => { vi.advanceTimersByTime(500) })
       expect(screen.getAllByText('Project')).toHaveLength(2)
       expect(screen.getByText(/^创建于 \d+年\d+月\d+日 /)).toBeTruthy()
-      expect(screen.queryByRole('button', { name: /^复制:/ })).toBeNull()
+      expect(screen.getByRole('button', { name: /^复制:/ })).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }
@@ -414,13 +414,13 @@ describe('workspace browser rows', () => {
     }
   })
 
-  it('ungrouped bucket renders no workspace menu', () => {
+  it('workspace row renders the rename and delete menu actions', () => {
     const group: GroupNode = {
-      key: '', workspaceId: undefined, cwd: undefined, createdAt: undefined, label: 'Ungrouped',
+      key: 'alpha', workspaceId: wid('alpha'), cwd: '/projects/alpha', createdAt: 0, label: 'Alpha',
       sessionCount: 0, expanded: false, containsCurrent: false, sessions: [],
     }
-    render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} />)
-    expect(screen.queryByRole('button', { name: /工作区/ })).toBeNull()
+    render(<ProjectRowItem group={group} onToggle={vi.fn()} onCreate={vi.fn()} t={t} actions={{ rename: vi.fn(), delete: vi.fn() }} />)
+    expect(screen.getByRole('button', { name: '工作区“Alpha”的操作' })).toBeTruthy()
   })
 
   it('blank New Session rows carry no menu, no time label, and no hover-card time', () => {
@@ -478,10 +478,11 @@ describe('workspace browser rows', () => {
     fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '归档会话' }))
     expect(onArchive).toHaveBeenCalledWith(node.id)
-    // Delete dispatches without opening the session.
+    // Delete dispatches with the current display title (dialog prefill) without
+    // opening the session.
     fireEvent.click(screen.getByRole('button', { name: '会话“One”的操作' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '删除会话' }))
-    expect(onDelete).toHaveBeenCalledWith(node.id)
+    expect(onDelete).toHaveBeenCalledWith(node.id, 'One')
     expect(onRename).toHaveBeenCalledOnce()
     expect(onOpen).not.toHaveBeenCalled()
     // Escape closes without selecting (Menu onClose path).

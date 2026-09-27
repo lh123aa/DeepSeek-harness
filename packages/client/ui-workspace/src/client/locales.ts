@@ -6,7 +6,6 @@
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'group.ungrouped': '未分组',
   'session.new': '新会话',
   'section.workspaces': '工作区',
   'section.sessions': '会话',
@@ -47,6 +46,7 @@ export const zh = {
   'menu.archiveSession': '归档会话',
   'menu.deleteSession': '删除会话',
   'delete.session.title': '删除会话？',
+  'delete.session.desc': '将把“{name}”从工作区与列表中移除，此操作无法撤销。会话日志会保留在磁盘上。',
   'delete.session.confirm': '删除',
   'delete.session.pending': '正在删除会话…',
   'sessions.count.one': '{n} 个会话',
@@ -80,7 +80,6 @@ export type WorkspaceKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
-  'group.ungrouped': 'Ungrouped',
   'session.new': 'New Session',
   'section.workspaces': 'Workspaces',
   'section.sessions': 'Sessions',
@@ -121,6 +120,7 @@ export const en = {
   'menu.archiveSession': 'Archive session',
   'menu.deleteSession': 'Delete session',
   'delete.session.title': 'Delete this session?',
+  'delete.session.desc': 'This removes “{name}” from its workspace and list, and cannot be undone. The session log is kept on disk.',
   'delete.session.confirm': 'Delete',
   'delete.session.pending': 'Deleting session…',
   'sessions.count.one': '{n} session',

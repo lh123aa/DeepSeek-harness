@@ -13,7 +13,6 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
-import { UNGROUPED_KEY } from '../src/client/tree.ts'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
 import { zh } from '../src/client/locales.ts'
 
@@ -93,6 +92,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
+    deleteSession: vi.fn(async () => {}),
     insertWorkspaceBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
@@ -112,20 +112,18 @@ function rerender(b: ReturnType<typeof mount>, overrides: Partial<WorkspaceBrows
 }
 
 describe('WorkspaceBrowser', () => {
-  it.each(['workspace', 'flat', 'ungrouped'] as const)('keeps %s recency independent of arrival order and saved manual positions', (mode) => {
+  it.each(['workspace', 'flat'] as const)('keeps %s recency independent of arrival order and saved manual positions', (mode) => {
     localStorage.clear()
     const preferences = createWorkspaceViewStore().create()
     preferences.actions.setGroupBy(mode === 'flat' ? 'flat' : 'workspace')
-    const account = mode === 'ungrouped' ? UNGROUPED_KEY : 'alpha'
+    const account = mode === 'flat' ? FLAT_SESSION_ORDER_KEY : 'alpha'
     preferences.actions.setSessionOrder(account, ['older', 'newer'], {})
-    preferences.actions.setSessionOrder(UNGROUPED_KEY, ['older', 'newer'], {})
     preferences.actions.setSessionOrder(FLAT_SESSION_ORDER_KEY, ['older', 'newer'], {})
     preferences.actions.setGroupExpanded(account, true)
-    preferences.actions.setGroupExpanded(UNGROUPED_KEY, true)
     localStorage.setItem('dsh.workspace.view.v5', JSON.stringify({ ...preferences.getSnapshot(), orderBy: 'updated' }))
     const b = mount({
       useSessions: hook(sessionState([summary('newer', 100)])),
-      useWorkspaces: hook(workspaceState(mode === 'ungrouped' ? [] : [workspace(account, ['older', 'newer'])])),
+      useWorkspaces: hook(workspaceState([workspace(account, ['older', 'newer'])])),
     })
     const names = () => screen.getAllByRole('treeitem')
       .filter(row => row.getAttribute('aria-expanded') === null)
@@ -150,15 +148,15 @@ describe('WorkspaceBrowser', () => {
     expect(names()).toEqual(['newer', 'older'])
   })
 
-  it.each(['workspace', 'flat', 'ungrouped'] as const)('starts Manual from the current %s order and forgets discarded layouts', (mode) => {
+  it.each(['workspace', 'flat'] as const)('starts Manual from the current %s order and forgets discarded layouts', (mode) => {
     localStorage.clear()
     const preferences = createWorkspaceViewStore().create()
     preferences.actions.setGroupBy(mode === 'flat' ? 'flat' : 'workspace')
-    const account = mode === 'flat' ? FLAT_SESSION_ORDER_KEY : mode === 'ungrouped' ? UNGROUPED_KEY : 'alpha'
+    const account = mode === 'flat' ? FLAT_SESSION_ORDER_KEY : 'alpha'
     preferences.actions.setGroupExpanded(account, true)
     const b = mount({
       useSessions: hook(sessionState([summary('a', 30), summary('b', 20), summary('c', 10)])),
-      useWorkspaces: hook(workspaceState(mode === 'ungrouped' ? [] : [workspace('alpha', ['c', 'a', 'b'])])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['c', 'a', 'b'])])),
     })
     const names = () => screen.getAllByRole('treeitem').filter(row => row.getAttribute('aria-expanded') === null)
       .map(row => row.querySelector('[class*="title"]')?.textContent)
@@ -274,18 +272,17 @@ describe('WorkspaceBrowser', () => {
     await waitFor(() => {
       expect(b.store.getSnapshot().groupExpansion).toEqual({})
       expect(b.store.getSnapshot().sessionOrderByAccount).toEqual({
-        [UNGROUPED_KEY]: [],
         [FLAT_SESSION_ORDER_KEY]: [],
       })
     })
   })
 
-  it.each(['workspace', 'flat', 'ungrouped'] as const)('retains the new Session position through a %s Workspace reconnect', (mode) => {
-    const account = mode === 'flat' ? FLAT_SESSION_ORDER_KEY : mode === 'ungrouped' ? UNGROUPED_KEY : 'alpha'
+  it.each(['workspace', 'flat'] as const)('retains the new Session position through a %s Workspace reconnect', (mode) => {
+    const account = mode === 'flat' ? FLAT_SESSION_ORDER_KEY : 'alpha'
     const old = summary('old', 10)
     const absent = summary('absent', 5)
     const blank = summary('blank', 1, { blank: true })
-    const groups = (ids: string[]) => workspaceState(mode === 'ungrouped' ? [] : [workspace('alpha', ids)])
+    const groups = (ids: string[]) => workspaceState([workspace('alpha', ids)])
     const preferences = createWorkspaceViewStore().create()
     preferences.actions.setGroupBy(mode === 'flat' ? 'flat' : 'workspace')
     preferences.actions.setGroupExpanded(account, true)
@@ -665,6 +662,74 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
+  it('confirms session deletion, explains retention, and closes on the command result', async () => {
+    const deleteSession = vi.fn(async () => {})
+    mount({
+      useSessions: hook(sessionState([summary('kept-s', 2), summary('doomed-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['kept-s', 'doomed-s'])])),
+      deleteSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“doomed-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除会话' }))
+
+    // Nothing commits before the operator confirms.
+    expect(deleteSession).not.toHaveBeenCalled()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.textContent).toContain('删除会话？')
+    // The dialog states the irreversibility and the retained log.
+    expect(dialog.textContent).toContain('doomed-s')
+    expect(dialog.textContent).toContain('无法撤销')
+    expect(dialog.textContent).toContain('会话日志会保留在磁盘上')
+
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    await waitFor(() => { expect(deleteSession).toHaveBeenCalledWith(sid('doomed-s')) })
+    // The Session stays in the Client Session list after deletion, so the
+    // dialog settles on the command result rather than a list echo.
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+  })
+
+  it('keeps the session delete dialog open on failure and allows retry or cancellation', async () => {
+    const deleteSession = vi.fn()
+      .mockRejectedValueOnce(new Error('delete exploded'))
+      .mockRejectedValueOnce('denied')
+    mount({
+      useSessions: hook(sessionState([summary('alpha-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+      deleteSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“alpha-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除会话' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('delete exploded') })
+    // The failure keeps the dialog open and the row alive for a retry.
+    expect(screen.getByRole('dialog', { name: '删除会话？' })).toBeTruthy()
+    expect(screen.getByText('alpha-s')).toBeTruthy()
+
+    // A non-Error rejection reports as text on the retry.
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+    await waitFor(() => { expect(screen.getByRole('alert').textContent).toBe('denied') })
+
+    // Cancelling after a failure dismisses the dialog without another commit.
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(screen.queryByRole('dialog', { name: '删除会话？' })).toBeNull()
+    expect(deleteSession).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not open the session delete dialog for a blank New Session row', () => {
+    const deleteSession = vi.fn(async () => {})
+    mount({
+      useSessions: hook(sessionState([summary('alpha-s', 1, { blank: true })])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+      deleteSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    // A provisional blank row exposes no row verbs at all.
+    expect(screen.queryByRole('button', { name: '会话“alpha-s”的操作' })).toBeNull()
+    expect(deleteSession).not.toHaveBeenCalled()
+  })
+
   it('renders a fork child as a top-level row without a session twist', () => {
     const parent = summary('parent-s', 2)
     const child = { ...summary('child-s', 1), parentId: parent.id }
@@ -695,18 +760,15 @@ describe('WorkspaceBrowser', () => {
     expect(startSession).toHaveBeenCalledWith(wid('alpha'))
   })
 
-  it('auto-expands the Ungrouped bucket for a loose current session; its header has no menu and its ＋ is inert', () => {
+  it('drops loose sessions from the view entirely', () => {
     const startSession = vi.fn()
     mount({
       useSessions: hook(sessionState([summary('loose', 1)], { current: sid('loose') })),
       useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
       startSession,
     })
-    // The loose session's group is UNGROUPED_KEY: expanded by the effect.
-    expect(screen.getByText('loose')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: '工作区“未分组”的操作' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '在“未分组”中新建会话' }))
-    expect(startSession).not.toHaveBeenCalled()
+    // Loose sessions have no workspace membership and are dropped.
+    expect(screen.queryByText('loose')).toBeNull()
   })
 
   it('keeps an already-expanded group when the selection moves within it', () => {
@@ -754,13 +816,13 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('新会话')).toBeNull()
   })
 
-  it.each(['workspace', 'flat', 'ungrouped'] as const)('keeps a new blank first across %s mode switches and enables drag after the first prompt', (mode) => {
+  it.each(['workspace', 'flat'] as const)('keeps a new blank first across %s mode switches and enables drag after the first prompt', (mode) => {
     localStorage.clear()
     const preferences = createWorkspaceViewStore().create()
     preferences.actions.setGroupBy(mode === 'flat' ? 'flat' : 'workspace')
-    const account = mode === 'flat' ? FLAT_SESSION_ORDER_KEY : mode === 'ungrouped' ? UNGROUPED_KEY : 'alpha'
+    const account = mode === 'flat' ? FLAT_SESSION_ORDER_KEY : 'alpha'
     preferences.actions.setGroupExpanded(account, true)
-    const groups = (ids: string[]) => hook(workspaceState(mode === 'ungrouped' ? [] : [workspace('alpha', ids)]))
+    const groups = (ids: string[]) => hook(workspaceState([workspace('alpha', ids)]))
     const b = mount({
       useSessions: hook(sessionState([summary('old', 100), summary('mid', 200)])),
       useWorkspaces: groups(['old', 'mid']),
@@ -1376,13 +1438,13 @@ describe('WorkspaceBrowser', () => {
     expect(b.store.getSnapshot().sessionOrderByAccount.alpha).toEqual(['two', 'one', 'three'])
   })
 
-  it('persists Ungrouped drag order in both modes', async () => {
+  it('persists Workspace drag order in both modes', async () => {
     const sessions = sessionState([summary('one', 3), summary('two', 2), summary('three', 1)])
     const b = mount({
       useSessions: hook(sessions),
-      useWorkspaces: hook(workspaceState([])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two', 'three'])])),
     })
-    fireEvent.click(screen.getByText('未分组'))
+    fireEvent.click(screen.getByText('alpha'))
 
     const dragAfter = (sourceTitle: string, targetTitle: string): void => {
       const source = screen.getByText(sourceTitle).closest('[role="treeitem"]') as HTMLElement
@@ -1395,9 +1457,9 @@ describe('WorkspaceBrowser', () => {
     }
 
     dragAfter('one', 'three')
-    expect(b.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
+    expect(b.store.getSnapshot().sessionOrderByAccount['alpha']).toEqual(['two', 'three', 'one'])
     dragAfter('two', 'one')
-    expect(b.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['three', 'one', 'two'])
+    expect(b.store.getSnapshot().sessionOrderByAccount['alpha']).toEqual(['three', 'one', 'two'])
 
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     fireEvent.click(screen.getByRole('menuitem', { name: '最近更新' }))
@@ -1408,14 +1470,14 @@ describe('WorkspaceBrowser', () => {
       expect(b.store.getSnapshot().sessionOrderByAccount).toEqual({})
     })
     dragAfter('one', 'three')
-    expect(b.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
+    expect(b.store.getSnapshot().sessionOrderByAccount['alpha']).toEqual(['two', 'three', 'one'])
 
     b.view.unmount()
     const restored = mount({
       useSessions: hook(sessions),
-      useWorkspaces: hook(workspaceState([])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['one', 'two', 'three'])])),
     })
-    expect(restored.store.getSnapshot().sessionOrderByAccount[UNGROUPED_KEY]).toEqual(['two', 'three', 'one'])
+    expect(restored.store.getSnapshot().sessionOrderByAccount['alpha']).toEqual(['two', 'three', 'one'])
     expect(screen.getAllByRole('treeitem').slice(1).map(row => row.textContent)).toEqual([
       expect.stringContaining('two'),
       expect.stringContaining('three'),
@@ -1567,7 +1629,6 @@ describe('WorkspaceBrowser', () => {
     const dialog = screen.getByRole('dialog', { name: '删除工作区' })
     expect(dialog.textContent).toContain('将把“Alpha”从工作区列表中移除')
     expect(dialog.textContent).toContain('文件夹与会话记录会保留')
-    expect(dialog.textContent).toContain('其会话将显示在“未分组”下')
 
     const confirm = screen.getByRole<HTMLButtonElement>('button', { name: '删除工作区' })
     fireEvent.click(confirm)
